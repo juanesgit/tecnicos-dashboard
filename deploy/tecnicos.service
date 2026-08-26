@@ -1,0 +1,23 @@
+[Unit]
+Description=Tecnicos Dashboard – FastAPI PWA
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/tecnicos-dashboard/backend
+EnvironmentFile=/opt/tecnicos-dashboard/backend/.env
+ExecStart=/opt/tecnicos-dashboard/venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 \
+    --port 8003 \
+    --workers 2 \
+    --log-level info
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tecnicos-dashboard
+
+[Install]
+WantedBy=multi-user.target

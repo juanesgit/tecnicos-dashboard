@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Entorno — NUNCA subir al repo
+backend/.env
+backend/app/tecnicos.db
+
+# Frontend build (se regenera con npm run build)
+backend/app/static/assets/
+backend/app/static/index.html
+frontend/node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Bot state
+bots/telegram_alert_state.json
+
+# Base de datos SQLite local
+backend/tecnicos.db
+*.db
+
+# Excel de nodos (dato operacional, no va al repo)
+backend/Nodos.xlsx
+
+# Scripts one-off
+fix_inicio.py
