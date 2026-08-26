@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, Response
 
 from app.config import settings
 from app.database import init_db
-from app.routers import auth, datos, feedback, push, users, usuarios, zonas, historico
+from app.routers import auth, datos, feedback, push, users, usuarios, zonas, historico, avance
 from app.services.zonas_service import reload_zonas
 from app.services.snapshot_service import start_snapshot_task, stop_snapshot_task
 
@@ -56,6 +56,7 @@ app.include_router(users.router, prefix="/api")
 app.include_router(usuarios.router, prefix="/api")
 app.include_router(zonas.router, prefix="/api")
 app.include_router(historico.router, prefix="/api")
+app.include_router(avance.router,   prefix="/api")
 
 
 # ── PWA: Service Worker (headers especiales) ──────────────────────────────────

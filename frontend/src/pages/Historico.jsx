@@ -9,6 +9,7 @@ import api from '../services/api'
 import useAuth from '../hooks/useAuth'
 import MapaCalorMicroceldas from '../components/MapaCalorMicroceldas'
 import HistoricoInicio from '../components/HistoricoInicio'
+import AvanceOperacion from '../components/AvanceOperacion'
 import ModalDetalle from '../components/ModalDetalle'
 
 const HORAS_OPTS = [
@@ -411,6 +412,11 @@ export default function Historico({
               Sin datos en el rango seleccionado.
             </p>
           )}
+
+          {/* Avance de operación — estados de OT */}
+          <div className="bg-white rounded-xl border border-slate-100 p-4">
+            <AvanceOperacion celulaFiltro={celulaFiltro} />
+          </div>
 
           {/* Mapa de calor microcelda × tiempo — solo si showMapa */}
           {showMapa && (
