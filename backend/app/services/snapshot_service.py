@@ -169,6 +169,19 @@ async def _capture_once():
         tz    = pytz.timezone(settings.APP_TIMEZONE)
         now   = datetime.now(tz).replace(tzinfo=None)  # naive UTC-equivalente local
 
+        # ── Capturar avance OT por microcelda ──────────────────────────────────
+        avance_mc: dict = {}
+        try:
+            loop = asyncio.get_event_loop()
+            from app.routers.avance import _calcular_avance
+            avance_data = await loop.run_in_executor(None, _calcular_avance)
+            for item in avance_data.get("por_microcelda", []):
+                key = (item.get("celula", ""), item.get("microcelda", ""))
+                avance_mc[key] = item
+            logger.debug("[Snapshot] Avance OT capturado para %d microceldas", len(avance_mc))
+        except Exception as avance_exc:
+            logger.warning("[Snapshot] Error capturando avance OT: %s", avance_exc)
+
         async with AsyncSessionLocal() as session:
             from sqlalchemy import select as sa_select
 
@@ -212,6 +225,11 @@ async def _capture_once():
                 ))
 
             for m in stats["por_microcelda"]:
+                # Buscar datos de avance OT para esta microcelda
+                ot = avance_mc.get((m["celula"], m["microcelda"]), {})
+                # Fallback: buscar solo por nombre de microcelda
+                if not ot:
+                    ot = avance_mc.get(("", m["microcelda"]), {})
                 session.add(SnapshotMicrocelda(
                     snapshot_id      = snap.id,
                     celula           = m["celula"],
@@ -221,6 +239,13 @@ async def _capture_once():
                     con_parada       = m["con_parada"],
                     cumplimiento_pct = m["cumplimiento_pct"],
                     en_riesgo        = m["en_riesgo"],
+                    ot_completado    = int(ot.get("completado", 0)),
+                    ot_no_completado = int(ot.get("no_completado", 0)),
+                    ot_iniciado      = int(ot.get("iniciado", 0)),
+                    ot_pendiente     = int(ot.get("pendiente", 0)),
+                    ot_suspendido    = int(ot.get("suspendido", 0)),
+                    ot_total         = int(ot.get("total", 0)),
+                    ot_pct_avance    = float(ot.get("pct_avance", 0.0)),
                 ))
 
             await session.commit()

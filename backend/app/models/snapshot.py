@@ -51,6 +51,14 @@ class SnapshotMicrocelda(Base):
     con_parada:       Mapped[int]   = mapped_column(Integer, nullable=False, default=0)
     cumplimiento_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     en_riesgo:        Mapped[int]   = mapped_column(Integer, nullable=False, default=0)
+    # Avance OT — conteo de estados de OT por microcelda (snapshot cada 5 min)
+    ot_completado:    Mapped[int]   = mapped_column(Integer, nullable=False, default=0)
+    ot_no_completado: Mapped[int]   = mapped_column(Integer, nullable=False, default=0)
+    ot_iniciado:      Mapped[int]   = mapped_column(Integer, nullable=False, default=0)
+    ot_pendiente:     Mapped[int]   = mapped_column(Integer, nullable=False, default=0)
+    ot_suspendido:    Mapped[int]   = mapped_column(Integer, nullable=False, default=0)
+    ot_total:         Mapped[int]   = mapped_column(Integer, nullable=False, default=0)
+    ot_pct_avance:    Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
 
     snapshot: Mapped["SnapshotGlobal"] = relationship("SnapshotGlobal", back_populates="microceldas")
 

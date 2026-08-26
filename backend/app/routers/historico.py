@@ -197,6 +197,60 @@ async def historico_prediccion(
     }
 
 
+@router.get("/avance")
+async def historico_avance(
+    horas: int = Query(default=8, ge=1, le=48),
+    celula: Optional[str] = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Tendencia histórica de avance OT (% completado) por microcelda — granularidad 5 min."""
+    from app.models.snapshot import SnapshotMicrocelda
+    desde = _tz_now() - timedelta(hours=horas)
+
+    # Forzar scope si es lider/supervisor
+    if current_user.role in ("lider_celula", "supervisor_microcelda") and current_user.celula:
+        celula = current_user.celula
+
+    q = (
+        select(SnapshotGlobal.captured_at, SnapshotMicrocelda)
+        .join(SnapshotMicrocelda, SnapshotMicrocelda.snapshot_id == SnapshotGlobal.id)
+        .where(SnapshotGlobal.captured_at >= desde)
+    )
+    if celula:
+        q = q.where(SnapshotMicrocelda.celula == celula)
+
+    q = q.order_by(SnapshotGlobal.captured_at)
+    result = await db.execute(q)
+    rows = result.all()
+
+    # Agrupar: { microcelda: [ {t, celula, completado, no_completado, iniciado,
+    #                           pendiente, suspendido, total, pct_avance}, ... ] }
+    from collections import defaultdict
+    series: dict = defaultdict(list)
+    for captured_at, sm in rows:
+        series[sm.microcelda].append({
+            "t":             captured_at.strftime("%H:%M"),
+            "celula":        sm.celula,
+            "completado":    sm.ot_completado,
+            "no_completado": sm.ot_no_completado,
+            "iniciado":      sm.ot_iniciado,
+            "pendiente":     sm.ot_pendiente,
+            "suspendido":    sm.ot_suspendido,
+            "total":         sm.ot_total,
+            "pct_avance":    sm.ot_pct_avance,
+        })
+
+    all_times = sorted({p["t"] for pts in series.values() for p in pts})
+
+    return {
+        "horas":   horas,
+        "celula":  celula,
+        "tiempos": all_times,
+        "series":  dict(series),
+    }
+
+
 @router.get("/inicio/microceldas")
 async def historico_inicio_microceldas(
     dias: int = Query(default=7, ge=1, le=30),

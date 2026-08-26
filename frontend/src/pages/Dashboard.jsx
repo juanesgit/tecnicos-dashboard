@@ -11,6 +11,7 @@ import BottomNav from '../components/BottomNav'
 import useTabStore from '../hooks/useTabStore'
 import ResumenPanel from '../components/ResumenPanel'
 import Historico from './Historico'
+import AvanceMapaView from '../components/AvanceMapaView'
 import Prediccion6pm from '../components/Prediccion6pm'
 import RetrasoActualView from '../components/RetrasoActualView'
 import Usuarios from './Usuarios'
@@ -150,8 +151,9 @@ function EnCursoTab({ loading, stats, statsDisplay, tabRetrasos, tabParadas, tab
 }
 
 /* ─── Tab: Mapas ──────────────────────────────────────────────── */
-function MapasTab({ rows, filtros, loading, onDetalle }) {
+function MapasTab({ rows, filtros, loading, onDetalle, avance, avanceLoading }) {
   const [subTab, setSubTab] = useState('retrasos')
+  const celulaFiltro = filtros?.celula ?? ''
   return (
     <div className="space-y-3">
       <div className="flex rounded-xl overflow-hidden border border-slate-200">
@@ -162,6 +164,10 @@ function MapasTab({ rows, filtros, loading, onDetalle }) {
         <SubTabBtn id="prediccion" current={subTab} onClick={setSubTab}
           activeColor="bg-slate-800 text-white">
           🏁 Predicción 6pm
+        </SubTabBtn>
+        <SubTabBtn id="avance" current={subTab} onClick={setSubTab}
+          activeColor="bg-emerald-600 text-white">
+          📊 Avance operación
         </SubTabBtn>
       </div>
 
@@ -176,6 +182,14 @@ function MapasTab({ rows, filtros, loading, onDetalle }) {
 
       {subTab === 'prediccion' && (
         <Prediccion6pm rows={loading ? [] : rows} filtros={filtros} onDetalle={onDetalle} />
+      )}
+
+      {subTab === 'avance' && (
+        <AvanceMapaView
+          celulaFiltro={celulaFiltro}
+          avance={avance}
+          loading={avanceLoading}
+        />
       )}
     </div>
   )
@@ -192,10 +206,12 @@ export default function Dashboard() {
     ? user.microceldas
     : (user?.microcelda ? [user.microcelda] : [])
 
-  const [rows, setRows]       = useState(null)
-  const [stats, setStats]     = useState(null)
-  const [zonas, setZonas]     = useState({})
-  const [loading, setLoading] = useState(false)
+  const [rows, setRows]           = useState(null)
+  const [stats, setStats]         = useState(null)
+  const [zonas, setZonas]         = useState({})
+  const [loading, setLoading]     = useState(false)
+  const [avance, setAvance]             = useState(null)
+  const [avanceLoading, setAvanceLoading] = useState(true)
   const { activeTab, setActiveTab } = useTabStore()
   const [detalleTecnico, setDetalleTecnico] = useState(null)
   const [lastUpdate, setLastUpdate]         = useState(null)
@@ -215,6 +231,15 @@ export default function Dashboard() {
   const [countdown,   setCountdown]   = useState(5 * 60)
   const intervalRef = useRef(null)
   const countRef    = useRef(refreshSecs)
+
+  const fetchAvance = useCallback(async () => {
+    setAvanceLoading(true)
+    try {
+      const { data } = await api.get('/avance-ot')
+      setAvance(data)
+    } catch { /* silencioso */ }
+    finally { setAvanceLoading(false) }
+  }, [])
 
   const fetchDatos = useCallback(async () => {
     setLoading(true)
@@ -240,6 +265,7 @@ export default function Dashboard() {
   useEffect(() => {
     fetchDatos()
     fetchZonas()
+    fetchAvance()
     api.get('/auth/me').then(({ data }) => {
       const token = localStorage.getItem('tecnicos_token')
       if (token) setAuth(token, data)
@@ -348,6 +374,7 @@ export default function Dashboard() {
 
   const handleRefresh = () => {
     fetchDatos()
+    fetchAvance()
     if (refreshSecs > 0) { countRef.current = refreshSecs; setCountdown(refreshSecs) }
     setSettingsOpen(false)
   }
@@ -505,6 +532,8 @@ export default function Dashboard() {
             filtros={filtros}
             loading={loading}
             onDetalle={setDetalleTecnico}
+            avance={avance}
+            avanceLoading={avanceLoading}
           />
         )}
 
