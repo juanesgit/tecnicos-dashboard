@@ -405,7 +405,11 @@ export default function MapaCalorMicroceldas({ celulaFiltro = '', microceldaFilt
     if (!celulaTimeMap[cel]) celulaTimeMap[cel] = {}
     if (!celMicros[cel]) celMicros[cel] = []
     celMicros[cel].push(mc)
-    for (const p of pts) {
+    // Deduplicar por t: si hay dos snapshots en el mismo minuto, quedarse con el último
+    const dedupedPts = Object.values(
+      pts.reduce((acc, p) => { acc[p.t] = p; return acc }, {})
+    )
+    for (const p of dedupedPts) {
       if (!celulaTimeMap[cel][p.t]) {
         celulaTimeMap[cel][p.t] = { t: p.t, con_retraso: 0, total: 0, con_parada: 0 }
       }
