@@ -592,11 +592,26 @@ function ExcelTab() {
    TAB 5 — Adherencia al sistema
 ══════════════════════════════════════════════════════════════ */
 function AdherenciaTab() {
-  const [data, setData]       = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [dias, setDias]       = useState(30)
-  const [detalle, setDetalle] = useState(null)
+  const [data, setData]         = useState(null)
+  const [loading, setLoading]   = useState(true)
+  const [dias, setDias]         = useState(30)
+  const [detalle, setDetalle]   = useState(null)
   const [timeline, setTimeline] = useState(null)
+  const [onlineIds, setOnlineIds] = useState(new Set())
+
+  // Polling de presencia cada 30 s
+  useEffect(() => {
+    let cancelled = false
+    const fetchOnline = async () => {
+      try {
+        const { data: res } = await api.get('/actividad/online')
+        if (!cancelled) setOnlineIds(new Set(res.online.map(u => u.user_id)))
+      } catch { /* silencioso */ }
+    }
+    fetchOnline()
+    const iv = setInterval(fetchOnline, 30_000)
+    return () => { cancelled = true; clearInterval(iv) }
+  }, [])
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -722,8 +737,9 @@ function AdherenciaTab() {
                 </thead>
                 <tbody>
                   {data.usuarios.map(u => {
-                    const sem   = SEM_COLOR[u.semaforo] || SEM_COLOR.gray
-                    const isOpen = detalle === u.user_id
+                    const sem     = SEM_COLOR[u.semaforo] || SEM_COLOR.gray
+                    const isOpen  = detalle === u.user_id
+                    const isOnline = onlineIds.has(u.user_id)
                     return (
                       <>
                         <tr
@@ -734,7 +750,15 @@ function AdherenciaTab() {
                             <span className={`block w-2 h-2 rounded-full ${sem.dot}`} title={sem.label} />
                           </td>
                           <td className="px-3 py-2.5">
-                            <p className="font-semibold text-slate-800">{u.full_name}</p>
+                            <div className="flex items-center gap-1.5">
+                              <p className="font-semibold text-slate-800">{u.full_name}</p>
+                              {isOnline && (
+                                <span className="relative flex h-2 w-2" title="En línea ahora">
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                                </span>
+                              )}
+                            </div>
                             <p className="text-slate-400">@{u.username}</p>
                           </td>
                           <td className="px-3 py-2.5 hidden sm:table-cell text-slate-500">{u.role_label}</td>

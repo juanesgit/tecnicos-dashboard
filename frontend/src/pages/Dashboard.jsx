@@ -10,6 +10,7 @@ import ModalDetalle from '../components/ModalDetalle'
 import BottomNav from '../components/BottomNav'
 import useTabStore from '../hooks/useTabStore'
 import { useActividad } from '../hooks/useActividad'
+import { usePresencia } from '../hooks/usePresencia'
 import ResumenPanel from '../components/ResumenPanel'
 import Historico from './Historico'
 import AvanceMapaView from '../components/AvanceMapaView'
@@ -227,6 +228,7 @@ export default function Dashboard() {
     snapshots:     'tab_admin',
   }
   useActividad(TAB_EVENTO[activeTab] || null)
+  usePresencia()   // mantiene conexión WS para presencia en tiempo real
 
   const [detalleTecnico, setDetalleTecnico] = useState(null)
   const [lastUpdate, setLastUpdate]         = useState(null)

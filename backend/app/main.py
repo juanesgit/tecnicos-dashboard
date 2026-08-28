@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, Response
 from app.config import settings
 from app.database import init_db
 from app.routers import auth, datos, feedback, push, users, usuarios, zonas, historico, avance, productividad, admin, actividad
+from app.routers.presencia import router as presencia_router, ws_presencia
 from app.services.zonas_service import reload_zonas
 from app.services.snapshot_service import start_snapshot_task, stop_snapshot_task
 
@@ -60,6 +61,8 @@ app.include_router(avance.router,       prefix="/api")
 app.include_router(productividad.router, prefix="/api")
 app.include_router(admin.router,        prefix="/api")
 app.include_router(actividad.router,    prefix="/api")
+app.include_router(presencia_router,    prefix="/api")   # REST /api/actividad/online
+app.add_api_websocket_route("/ws/presencia", ws_presencia)  # sin /api para evitar proxy
 
 
 # ── PWA: Service Worker (headers especiales) ──────────────────────────────────
