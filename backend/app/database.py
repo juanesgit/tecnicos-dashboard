@@ -96,6 +96,10 @@ async def _migrate_users():
             ts DATETIME NOT NULL
         )""",
         "CREATE INDEX IF NOT EXISTS ix_alarma_eventos_alarma_id ON alarma_eventos(alarma_id)",
+        # Columnas extra en alarmas (ciudad, tipo_retraso, minutos_retraso_inicio)
+        "ALTER TABLE alarmas ADD COLUMN ciudad VARCHAR(80)",
+        "ALTER TABLE alarmas ADD COLUMN tipo_retraso VARCHAR(40)",
+        "ALTER TABLE alarmas ADD COLUMN minutos_retraso_inicio INTEGER",
     ]
     async with engine.begin() as conn:
         for sql in migrations:

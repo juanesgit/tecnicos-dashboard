@@ -164,10 +164,20 @@ async def procesar_alarmas(datos: List[Dict[str, Any]]) -> None:
             if not sup:
                 logger.warning("[Alarma] Sin supervisores disponibles.")
                 break
+            # Calcular minutos de retraso real según tipo
+            estado_act = d.get("estado_actual", "")
+            if estado_act == "Retraso en siguiente":
+                min_ret = int(d.get("minutos_retraso_siguiente", 0) or 0)
+            else:
+                min_ret = int(d.get("minutos_retraso", 0) or 0)
+
             nueva = Alarma(
                 tecnico=tec,
                 celula=d.get("celula", "Sin célula") or "Sin célula",
                 microcelda=d.get("microcelda", "Sin microcelda") or "Sin microcelda",
+                ciudad=d.get("ciudad_nodo") or d.get("ciudad_actual") or None,
+                tipo_retraso=estado_act or None,
+                minutos_retraso_inicio=min_ret if min_ret > 0 else None,
                 nivel="leve", estado="abierta",
                 asignado_a=sup["user_id"],
                 asignado_nombre=sup.get("full_name", ""),

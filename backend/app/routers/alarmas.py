@@ -29,6 +29,9 @@ def _ser(a: Alarma) -> Dict[str, Any]:
         "fecha_cierre": a.fecha_cierre.isoformat() if a.fecha_cierre else None,
         "tiempo_resolucion_min": a.tiempo_resolucion_min,
         "notas": a.notas, "sla_cumplido": a.sla_cumplido,
+        "ciudad": a.ciudad,
+        "tipo_retraso": a.tipo_retraso,
+        "minutos_retraso_inicio": a.minutos_retraso_inicio,
     }
 
 

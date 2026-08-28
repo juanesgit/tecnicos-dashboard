@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import useAuthStore from '../store/authStore'
+import useAuthStore from '../hooks/useAuth'
 
 const API = '/api'
 
@@ -72,7 +72,20 @@ function AlarmaCard({ alarma, onNota, onCerrar }) {
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-600">CERRADA</span>
             )}
           </div>
-          <div className="text-xs text-gray-500 mt-0.5">{alarma.celula} › {alarma.microcelda}</div>
+          <div className="text-xs text-gray-500 mt-0.5">
+            {alarma.celula} › {alarma.microcelda}
+            {alarma.ciudad && alarma.ciudad !== 'Sin clasificar' && (
+              <span className="ml-1 text-gray-400">· {alarma.ciudad}</span>
+            )}
+          </div>
+          {alarma.tipo_retraso && (
+            <div className="text-xs text-gray-500 mt-0.5">
+              <span className="font-medium">{alarma.tipo_retraso}</span>
+              {alarma.minutos_retraso_inicio > 0 && (
+                <span className="ml-1 text-gray-400">· {fmtMin(alarma.minutos_retraso_inicio)} al crear</span>
+              )}
+            </div>
+          )}
           {alarma.estado === 'abierta' && (
             <div className="text-xs text-gray-500 mt-0.5">
               Hace {fmtMin(transcurrido)} · Asig: <strong>{alarma.asignado_nombre}</strong>
