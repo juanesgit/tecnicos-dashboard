@@ -9,6 +9,7 @@ import TablaTecnicos from '../components/TablaTecnicos'
 import ModalDetalle from '../components/ModalDetalle'
 import BottomNav from '../components/BottomNav'
 import useTabStore from '../hooks/useTabStore'
+import { useActividad } from '../hooks/useActividad'
 import ResumenPanel from '../components/ResumenPanel'
 import Historico from './Historico'
 import AvanceMapaView from '../components/AvanceMapaView'
@@ -215,6 +216,18 @@ export default function Dashboard() {
   const [avance, setAvance]             = useState(null)
   const [avanceLoading, setAvanceLoading] = useState(true)
   const { activeTab, setActiveTab } = useTabStore()
+
+  // Tracking silencioso de uso por pestaña
+  const TAB_EVENTO = {
+    encurso:       'tab_dashboard',
+    mapas:         'tab_avance',
+    tendencias:    'tab_historico',
+    productividad: 'tab_productividad',
+    usuarios:      'tab_usuarios',
+    snapshots:     'tab_admin',
+  }
+  useActividad(TAB_EVENTO[activeTab] || null)
+
   const [detalleTecnico, setDetalleTecnico] = useState(null)
   const [lastUpdate, setLastUpdate]         = useState(null)
   const [filtrosOpen, setFiltrosOpen]       = useState(false)

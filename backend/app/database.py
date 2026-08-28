@@ -17,7 +17,7 @@ async def get_db():
 
 async def init_db():
     async with engine.begin() as conn:
-        from app.models import user, push_subscription, snapshot  # noqa: F401
+        from app.models import user, push_subscription, snapshot, actividad  # noqa: F401
         await conn.run_sync(Base.metadata.create_all)
 
     await _migrate_users()
@@ -53,6 +53,18 @@ async def _migrate_users():
         "ALTER TABLE snapshot_ciudad ADD COLUMN ot_suspendido INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE snapshot_ciudad ADD COLUMN ot_total INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE snapshot_ciudad ADD COLUMN ot_pct_avance REAL NOT NULL DEFAULT 0.0",
+        # Tabla de actividad / adherencia
+        """CREATE TABLE IF NOT EXISTS actividad_usuarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            username VARCHAR(60) NOT NULL,
+            full_name VARCHAR(120) NOT NULL,
+            role VARCHAR(30) NOT NULL,
+            evento VARCHAR(50) NOT NULL,
+            ts DATETIME NOT NULL
+        )""",
+        "CREATE INDEX IF NOT EXISTS ix_actividad_user_id ON actividad_usuarios(user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_actividad_ts ON actividad_usuarios(ts)",
     ]
     async with engine.begin() as conn:
         for sql in migrations:

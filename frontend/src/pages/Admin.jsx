@@ -589,16 +589,231 @@ function ExcelTab() {
 }
 
 /* ══════════════════════════════════════════════════════════════
+   TAB 5 — Adherencia al sistema
+══════════════════════════════════════════════════════════════ */
+function AdherenciaTab() {
+  const [data, setData]       = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [dias, setDias]       = useState(30)
+  const [detalle, setDetalle] = useState(null)
+  const [timeline, setTimeline] = useState(null)
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const { data: res } = await api.get(`/actividad/adherencia?dias=${dias}`)
+      setData(res)
+    } catch (e) {
+      toast.error('Error cargando adherencia')
+    } finally {
+      setLoading(false)
+    }
+  }, [dias])
+
+  useEffect(() => { fetchData() }, [fetchData])
+
+  const openTimeline = async (userId) => {
+    if (detalle === userId) { setDetalle(null); setTimeline(null); return }
+    setDetalle(userId)
+    setTimeline(null)
+    try {
+      const { data: res } = await api.get(`/actividad/timeline/${userId}?dias=${dias}`)
+      setTimeline(res.dias)
+    } catch {
+      toast.error('Error cargando historial')
+    }
+  }
+
+  const SEM_COLOR = {
+    green:  { dot: 'bg-emerald-400', text: 'text-emerald-600', label: 'Activo hoy',       bg: 'bg-emerald-50' },
+    yellow: { dot: 'bg-amber-400',   text: 'text-amber-600',   label: 'Activo (≤3 días)', bg: 'bg-amber-50'   },
+    red:    { dot: 'bg-red-400',     text: 'text-red-600',     label: '+3 días inactivo',  bg: 'bg-red-50'     },
+    gray:   { dot: 'bg-slate-300',   text: 'text-slate-400',   label: 'Sin actividad',     bg: 'bg-slate-50'   },
+  }
+
+  const fmtFecha = (iso) => {
+    if (!iso) return '—'
+    const d = new Date(iso)
+    return d.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+  }
+
+  const fmtDia = (iso) => new Date(iso).toLocaleDateString('es-CO', { weekday: 'short', day: '2-digit', month: 'short' })
+
+  const EVT_ICON = {
+    login: '🔑', tab_dashboard: '📊', tab_avance: '📈',
+    tab_historico: '🕐', tab_productividad: '⚡', tab_admin: '⚙️',
+    tab_usuarios: '👥', datos: '📡',
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Controles */}
+      <div className="flex items-center gap-2">
+        <select
+          value={dias}
+          onChange={e => setDias(Number(e.target.value))}
+          className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-400"
+        >
+          {[7, 15, 30, 60, 90].map(d => (
+            <option key={d} value={d}>Últimos {d} días</option>
+          ))}
+        </select>
+        <button
+          onClick={fetchData}
+          disabled={loading}
+          className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors"
+        >↻</button>
+        <span className="ml-auto text-[11px] text-slate-400">
+          Actualizado al cargar la pestaña
+        </span>
+      </div>
+
+      {loading && <Spinner />}
+
+      {!loading && data && (
+        <>
+          {/* Cards de resumen */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {[
+              { label: 'Activos hoy',    val: data.resumen.activos_hoy,    color: 'text-emerald-600' },
+              { label: 'Activos semana', val: data.resumen.activos_semana, color: 'text-amber-600'   },
+              { label: 'Sin actividad',  val: data.resumen.nunca_entraron, color: 'text-slate-400'   },
+              { label: 'Total usuarios', val: data.resumen.total_usuarios, color: 'text-slate-700'   },
+            ].map(c => (
+              <div key={c.label} className="bg-white rounded-xl border border-slate-100 p-3 text-center">
+                <p className={`text-2xl font-bold tabular-nums ${c.color}`}>{c.val}</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">{c.label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Leyenda semáforo */}
+          <div className="flex flex-wrap gap-3 px-1">
+            {Object.entries(SEM_COLOR).map(([k, v]) => (
+              <div key={k} className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                <span className={`w-2 h-2 rounded-full ${v.dot}`} />
+                {v.label}
+              </div>
+            ))}
+          </div>
+
+          {/* Tabla de usuarios */}
+          <div className="rounded-xl border border-slate-100 bg-white overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100 text-left bg-slate-50">
+                    <th className="px-3 py-2.5 font-semibold text-slate-500 w-4" />
+                    <th className="px-3 py-2.5 font-semibold text-slate-500">Usuario</th>
+                    <th className="px-3 py-2.5 font-semibold text-slate-500 hidden sm:table-cell">Rol</th>
+                    <th className="px-3 py-2.5 font-semibold text-slate-500">Último acceso</th>
+                    <th className="px-3 py-2.5 font-semibold text-slate-500 text-right">Días activos</th>
+                    <th className="px-3 py-2.5 font-semibold text-slate-500 text-right">Logins</th>
+                    <th className="px-3 py-2.5 font-semibold text-slate-500 text-right">Eventos</th>
+                    <th className="px-3 py-2.5 w-8" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.usuarios.map(u => {
+                    const sem   = SEM_COLOR[u.semaforo] || SEM_COLOR.gray
+                    const isOpen = detalle === u.user_id
+                    return (
+                      <>
+                        <tr
+                          key={u.user_id}
+                          className={`border-b border-slate-50 transition-colors ${isOpen ? sem.bg : 'hover:bg-slate-50'}`}
+                        >
+                          <td className="px-3 py-2.5">
+                            <span className={`block w-2 h-2 rounded-full ${sem.dot}`} title={sem.label} />
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <p className="font-semibold text-slate-800">{u.full_name}</p>
+                            <p className="text-slate-400">@{u.username}</p>
+                          </td>
+                          <td className="px-3 py-2.5 hidden sm:table-cell text-slate-500">{u.role_label}</td>
+                          <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">{fmtFecha(u.ultimo_acceso)}</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums">
+                            <span className={`font-semibold ${u.dias_activos_30 > 0 ? 'text-slate-700' : 'text-slate-300'}`}>
+                              {u.dias_activos_30}
+                            </span>
+                            <span className="text-slate-300">/{dias}</span>
+                          </td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{u.logins_30}</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{u.total_eventos_30}</td>
+                          <td className="px-2 py-2.5 text-center">
+                            <button
+                              onClick={() => openTimeline(u.user_id)}
+                              className={`w-6 h-6 rounded flex items-center justify-center text-[10px] transition-colors ${
+                                isOpen ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-100'
+                              }`}
+                            >
+                              {isOpen ? '▲' : '▼'}
+                            </button>
+                          </td>
+                        </tr>
+
+                        {isOpen && (
+                          <tr key={`tl-${u.user_id}`} className="border-b border-slate-100">
+                            <td colSpan={8} className="px-4 py-3 bg-slate-50">
+                              {timeline === null ? (
+                                <div className="flex items-center gap-2 text-xs text-slate-400">
+                                  <div className="w-3 h-3 border border-slate-300 border-t-slate-600 rounded-full animate-spin" />
+                                  Cargando historial…
+                                </div>
+                              ) : timeline.length === 0 ? (
+                                <p className="text-xs text-slate-400">Sin actividad registrada en este período.</p>
+                              ) : (
+                                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                                  {timeline.map(dia => (
+                                    <div key={dia.fecha} className="flex items-start gap-2">
+                                      <span className="text-[11px] font-semibold text-slate-500 w-28 shrink-0 pt-0.5">
+                                        {fmtDia(dia.fecha)}
+                                      </span>
+                                      <div className="flex flex-wrap gap-1">
+                                        {Object.entries(
+                                          dia.eventos.reduce((acc, ev) => { acc[ev] = (acc[ev] || 0) + 1; return acc }, {})
+                                        ).map(([ev, count]) => (
+                                          <span
+                                            key={ev}
+                                            className="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-full px-2 py-0.5 text-[10px] text-slate-600"
+                                          >
+                                            {EVT_ICON[ev] || '•'} {ev.replace('tab_', '')}
+                                            {count > 1 && <span className="font-bold text-slate-400">×{count}</span>}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════
    Componente principal Admin
 ══════════════════════════════════════════════════════════════ */
 export default function Admin() {
   const [subTab, setSubTab] = useState('monitor')
 
   const TABS = [
-    { id: 'monitor',  icon: '📊', label: 'Monitor'  },
-    { id: 'zonas',    icon: '🗺️',  label: 'Zonas'    },
-    { id: 'excel',    icon: '📁',  label: 'Excel'    },
-    { id: 'usuarios', icon: '👥',  label: 'Usuarios' },
+    { id: 'monitor',    icon: '📊', label: 'Monitor'    },
+    { id: 'zonas',      icon: '🗺️',  label: 'Zonas'      },
+    { id: 'excel',      icon: '📁',  label: 'Excel'      },
+    { id: 'usuarios',   icon: '👥',  label: 'Usuarios'   },
+    { id: 'adherencia', icon: '📋', label: 'Adherencia' },
   ]
 
   return (
@@ -608,7 +823,7 @@ export default function Admin() {
         <div className="w-8 h-8 rounded-xl bg-teal-600 flex items-center justify-center text-white text-base">⚙</div>
         <div>
           <h2 className="text-sm font-bold text-slate-800">Panel de Administración</h2>
-          <p className="text-[11px] text-slate-400">Snapshots · Zonas · Excel · Usuarios</p>
+          <p className="text-[11px] text-slate-400">Snapshots · Zonas · Excel · Usuarios · Adherencia</p>
         </div>
       </div>
 
@@ -620,10 +835,11 @@ export default function Admin() {
       </div>
 
       {/* Contenido */}
-      {subTab === 'monitor'  && <MonitorTab />}
-      {subTab === 'zonas'    && <ZonasTab />}
-      {subTab === 'excel'    && <ExcelTab />}
-      {subTab === 'usuarios' && <Usuarios />}
+      {subTab === 'monitor'    && <MonitorTab />}
+      {subTab === 'zonas'      && <ZonasTab />}
+      {subTab === 'excel'      && <ExcelTab />}
+      {subTab === 'usuarios'   && <Usuarios />}
+      {subTab === 'adherencia' && <AdherenciaTab />}
     </div>
   )
 }
