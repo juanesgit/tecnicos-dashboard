@@ -13,7 +13,7 @@ from app.services.auth import get_current_user, hash_password
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
 
-ROLES_VALIDOS = {"admin", "lider_celula", "supervisor_microcelda"}
+ROLES_VALIDOS = {"admin", "lider_celula", "supervisor_microcelda", "supervisor_ccot"}
 
 
 def _only_admin(current_user: User = Depends(get_current_user)) -> User:
@@ -25,10 +25,11 @@ def _only_admin(current_user: User = Depends(get_current_user)) -> User:
 def _validate_scope(
     role: str,
     celula: Optional[str],
-    microcelda: Optional[str] = None,
+    microcelda: Optional[str],
     microceldas: Optional[List[str]] = None,
+    celulas: Optional[List[str]] = None,
 ) -> None:
-    """Valida rol, célula y lista de microceldas coherentes."""
+    """Valida que la célula/microceldas/células sean coherentes con el rol."""
     if role not in ROLES_VALIDOS:
         raise HTTPException(status_code=422, detail=f"Rol inválido. Opciones: {sorted(ROLES_VALIDOS)}")
 
@@ -43,13 +44,10 @@ def _validate_scope(
             raise HTTPException(status_code=422, detail="supervisor_microcelda requiere célula")
         if celula not in VALID_CELULAS:
             raise HTTPException(status_code=422, detail=f"Célula '{celula}' no existe")
-
-        # Lista efectiva: nueva forma (microceldas) o legacy (microcelda)
-        effective: List[str] = microceldas if microceldas else ([microcelda] if microcelda else [])
-        if not effective:
+        mcs = microceldas or ([microcelda] if microcelda else [])
+        if not mcs:
             raise HTTPException(status_code=422, detail="supervisor_microcelda requiere al menos una microcelda")
-
-        for mc in effective:
+        for mc in mcs:
             if mc not in VALID_MICROCELDAS:
                 raise HTTPException(status_code=422, detail=f"Microcelda '{mc}' no existe")
             celula_padre = get_celula_de_microcelda(mc)
@@ -58,6 +56,14 @@ def _validate_scope(
                     status_code=422,
                     detail=f"'{mc}' pertenece a '{celula_padre}', no a '{celula}'"
                 )
+
+    if role == "supervisor_ccot":
+        cls = celulas or ([celula] if celula else [])
+        if not cls:
+            raise HTTPException(status_code=422, detail="supervisor_ccot requiere al menos una célula")
+        for c in cls:
+            if c not in VALID_CELULAS:
+                raise HTTPException(status_code=422, detail=f"Célula '{c}' no existe")
 
 
 # ── Endpoint público (autenticado): estructura de células ─────────────────────
@@ -83,24 +89,26 @@ async def create_user(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(_only_admin),
 ):
-    # Resolver lista efectiva de microceldas
-    effective_mcs: Optional[List[str]] = data.microceldas or ([data.microcelda] if data.microcelda else None)
-    _validate_scope(data.role, data.celula, microceldas=effective_mcs)
+    _validate_scope(data.role, data.celula, data.microcelda, data.microceldas, data.celulas)
 
     exists = await db.execute(select(User).where(User.username == data.username))
     if exists.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Usuario ya existe")
+
+    # Para supervisor_ccot: primera célula de la lista va también en campo legacy celula
+    celula_legacy = data.celula
+    if data.role == "supervisor_ccot" and data.celulas:
+        celula_legacy = data.celulas[0]
 
     user = User(
         username=data.username,
         full_name=data.full_name,
         hashed_password=hash_password(data.password),
         role=data.role,
-        celula=data.celula or None,
-        # legacy: guardar la primera microcelda en el campo simple para compatibilidad
-        microcelda=effective_mcs[0] if effective_mcs else None,
-        # nueva: guardar la lista completa como JSON
-        microceldas=effective_mcs if effective_mcs and len(effective_mcs) > 1 else None,
+        celula=celula_legacy or None,
+        microcelda=data.microcelda or None,
+        microceldas=data.microceldas or None,
+        celulas=data.celulas or None,
         is_active=True,
     )
     db.add(user)
@@ -121,30 +129,26 @@ async def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
-    new_role   = data.role   if data.role   is not None else user.role
-    new_celula = data.celula if data.celula is not None else user.celula
+    # Tomar valores actuales si el update es parcial
+    new_role       = data.role       if data.role       is not None else user.role
+    new_celula     = data.celula     if data.celula     is not None else user.celula
+    new_microcelda = data.microcelda if data.microcelda is not None else user.microcelda
+    new_microceldas = data.microceldas if data.microceldas is not None else user.microceldas
+    new_celulas     = data.celulas    if data.celulas    is not None else user.celulas
+    _validate_scope(new_role, new_celula, new_microcelda, new_microceldas, new_celulas)
 
-    # Resolver lista efectiva de microceldas para validación
-    if data.microceldas is not None:
-        new_effective_mcs = data.microceldas or None
-    elif data.microcelda is not None:
-        new_effective_mcs = [data.microcelda] if data.microcelda else None
-    else:
-        new_effective_mcs = user.microcelda_list or None
-
-    _validate_scope(new_role, new_celula, microceldas=new_effective_mcs)
-
-    if data.full_name  is not None: user.full_name       = data.full_name
-    if data.password   is not None: user.hashed_password = hash_password(data.password)
-    if data.role       is not None: user.role             = data.role
-    if data.celula     is not None: user.celula           = data.celula or None
-    if data.is_active  is not None: user.is_active        = data.is_active
-
-    # Actualizar microceldas
-    if data.microceldas is not None or data.microcelda is not None:
-        mcs = new_effective_mcs or []
-        user.microcelda  = mcs[0] if mcs else None                          # campo legacy
-        user.microceldas = mcs if len(mcs) > 1 else None                   # JSON solo si > 1
+    if data.full_name   is not None: user.full_name       = data.full_name
+    if data.password    is not None: user.hashed_password = hash_password(data.password)
+    if data.role        is not None: user.role             = data.role
+    if data.celula      is not None: user.celula           = data.celula or None
+    if data.microcelda  is not None: user.microcelda       = data.microcelda or None
+    if data.microceldas is not None: user.microceldas      = data.microceldas or None
+    if data.celulas     is not None:
+        user.celulas = data.celulas or None
+        # Actualizar campo legacy celula con la primera célula de la lista
+        if data.celulas:
+            user.celula = data.celulas[0]
+    if data.is_active   is not None: user.is_active        = data.is_active
 
     await db.commit()
     await db.refresh(user)

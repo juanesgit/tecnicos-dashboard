@@ -15,16 +15,23 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(30), nullable=False, default="supervisor_microcelda")
     celula: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     microcelda: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
-    # Lista de microceldas (JSON). Tiene prioridad sobre el campo legacy `microcelda`.
     microceldas: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    celulas: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     @property
     def microcelda_list(self) -> list:
-        """Lista efectiva de microceldas. Usa `microceldas` (JSON) si existe, o `microcelda` como fallback."""
         if self.microceldas:
             return list(self.microceldas)
         if self.microcelda:
             return [self.microcelda]
+        return []
+
+    @property
+    def celula_list(self) -> list:
+        if self.celulas:
+            return list(self.celulas)
+        if self.celula:
+            return [self.celula]
         return []

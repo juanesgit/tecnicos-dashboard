@@ -1,4 +1,4 @@
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel
 from typing import Optional, List
 
 
@@ -15,16 +15,10 @@ class UserOut(BaseModel):
     celula: Optional[str] = None
     microcelda: Optional[str] = None
     microceldas: Optional[List[str]] = None
+    celulas: Optional[List[str]] = None
     is_active: bool
 
     model_config = {"from_attributes": True}
-
-    @model_validator(mode="after")
-    def normalise_microceldas(self):
-        """Garantiza que microceldas sea siempre una lista (nunca None si microcelda existe)."""
-        if not self.microceldas and self.microcelda:
-            self.microceldas = [self.microcelda]
-        return self
 
 
 class UserCreate(BaseModel):
@@ -33,8 +27,9 @@ class UserCreate(BaseModel):
     password: str
     role: str = "supervisor_microcelda"
     celula: Optional[str] = None
-    microcelda: Optional[str] = None          # legacy – se ignora si se envía microceldas
-    microceldas: Optional[List[str]] = None   # nueva forma recomendada
+    microcelda: Optional[str] = None
+    microceldas: Optional[List[str]] = None
+    celulas: Optional[List[str]] = None
 
 
 class UserUpdate(BaseModel):
@@ -44,6 +39,7 @@ class UserUpdate(BaseModel):
     celula: Optional[str] = None
     microcelda: Optional[str] = None
     microceldas: Optional[List[str]] = None
+    celulas: Optional[List[str]] = None
     is_active: Optional[bool] = None
 
 
@@ -55,15 +51,10 @@ class UserList(BaseModel):
     celula: Optional[str] = None
     microcelda: Optional[str] = None
     microceldas: Optional[List[str]] = None
+    celulas: Optional[List[str]] = None
     is_active: bool
 
     model_config = {"from_attributes": True}
-
-    @model_validator(mode="after")
-    def normalise_microceldas(self):
-        if not self.microceldas and self.microcelda:
-            self.microceldas = [self.microcelda]
-        return self
 
 
 class Token(BaseModel):

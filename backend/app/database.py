@@ -31,6 +31,7 @@ async def _migrate_users():
         "ALTER TABLE users ADD COLUMN celula VARCHAR(50)",
         "ALTER TABLE users ADD COLUMN microcelda VARCHAR(80)",
         "ALTER TABLE users ADD COLUMN microceldas TEXT",
+        "ALTER TABLE users ADD COLUMN celulas TEXT",
         "ALTER TABLE snapshot_microcelda ADD COLUMN en_riesgo INTEGER NOT NULL DEFAULT 0",
         """CREATE TABLE IF NOT EXISTS registro_inicio_diario (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

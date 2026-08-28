@@ -43,6 +43,7 @@ def _apply_scope(payload: dict, user: User) -> dict:
     - admin: datos completos
     - lider_celula: filtra por célula
     - supervisor_microcelda: filtra por lista de microceldas (soporta múltiples)
+    - supervisor_ccot: filtra por lista de células (soporta múltiples)
     """
     role = user.role
     datos = payload.get("datos", [])
@@ -54,6 +55,10 @@ def _apply_scope(payload: dict, user: User) -> dict:
         micros = {m.strip().lower() for m in user.microcelda_list}
         if micros:
             datos = [d for d in datos if str(d.get("microcelda", "")).strip().lower() in micros]
+    elif role == "supervisor_ccot":
+        celulas = {c.strip().lower() for c in user.celula_list}
+        if celulas:
+            datos = [d for d in datos if str(d.get("celula", "")).strip().lower() in celulas]
 
     result = copy.copy(payload)
     result["datos"] = datos
