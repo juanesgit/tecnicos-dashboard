@@ -18,6 +18,7 @@ import Prediccion6pm from '../components/Prediccion6pm'
 import RetrasoActualView from '../components/RetrasoActualView'
 import Usuarios from './Usuarios'
 import Admin from './Admin'
+import Alarmas from './Alarmas'
 import ProductividadView from '../components/ProductividadView'
 
 /* ─── KPI banner compacto ─────────────────────────────────────── */
@@ -226,9 +227,27 @@ export default function Dashboard() {
     productividad: 'tab_productividad',
     usuarios:      'tab_usuarios',
     snapshots:     'tab_admin',
+    alarmas:       'tab_alarmas',
   }
   useActividad(TAB_EVENTO[activeTab] || null)
   usePresencia()   // mantiene conexión WS para presencia en tiempo real
+
+  // Badge de alarmas (solo admin y supervisor_ccot)
+  const [alarmaBadge, setAlarmaBadge] = useState({ total: 0, criticas: 0 })
+  useEffect(() => {
+    const ROLES = ['admin', 'supervisor_ccot']
+    if (!user?.role || !ROLES.includes(user.role)) return
+    const token = localStorage.getItem('tecnicos_token')
+    const fetchBadge = async () => {
+      try {
+        const res = await fetch('/api/alarmas/badge', { headers: { Authorization: `Bearer ${token}` } })
+        if (res.ok) setAlarmaBadge(await res.json())
+      } catch {}
+    }
+    fetchBadge()
+    const id = setInterval(fetchBadge, 30000)
+    return () => clearInterval(id)
+  }, [user?.role])
 
   const [detalleTecnico, setDetalleTecnico] = useState(null)
   const [lastUpdate, setLastUpdate]         = useState(null)
@@ -571,6 +590,8 @@ export default function Dashboard() {
 
         {activeTab === 'usuarios' && <Usuarios />}
 
+        {activeTab === 'alarmas' && <Alarmas />}
+
         {activeTab === 'snapshots' && user?.role === 'admin' && <Admin />}
 
       </div>
@@ -578,8 +599,9 @@ export default function Dashboard() {
       <BottomNav
         activeTab={activeTab}
         onTabChange={setActiveTab}
-        counts={{ encurso: tabRetrasos.length }}
+        counts={{ encurso: tabRetrasos.length, alarmas: alarmaBadge.total }}
         isAdmin={user?.role === 'admin'}
+        userRole={user?.role || ''}
       />
 
       {detalleTecnico && (

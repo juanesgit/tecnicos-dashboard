@@ -44,6 +44,18 @@ const ALL_TABS = [
     ),
   },
   {
+    id: 'alarmas',
+    label: 'Alarmas',
+    adminOnly: false,
+    roles: ['admin', 'supervisor_ccot'],
+    icon: (active) => (
+      <svg className="w-5 h-5" fill={active ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={active ? 0 : 2}
+          d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+      </svg>
+    ),
+  },
+  {
     id: 'snapshots',
     label: 'Admin',
     adminOnly: true,
@@ -61,11 +73,15 @@ const ACTIVE_COLORS = {
   mapas:         { text: '#0891b2', bg: '#ecfeff' },
   tendencias:    { text: '#7c3aed', bg: '#f5f3ff' },
   productividad: { text: '#4f46e5', bg: '#eef2ff' },
+  alarmas:       { text: '#dc2626', bg: '#fef2f2' },
   snapshots:     { text: '#0f766e', bg: '#f0fdfa' },
 }
 
-export default function BottomNav({ activeTab, onTabChange, counts = {}, isAdmin = false }) {
-  const TABS = ALL_TABS.filter(t => !t.adminOnly || isAdmin)
+export default function BottomNav({ activeTab, onTabChange, counts = {}, isAdmin = false, userRole = '' }) {
+  const TABS = ALL_TABS.filter(t => {
+    if (t.roles) return t.roles.includes(userRole)
+    return !t.adminOnly || isAdmin
+  })
 
   return (
     <nav

@@ -17,7 +17,7 @@ async def get_db():
 
 async def init_db():
     async with engine.begin() as conn:
-        from app.models import user, push_subscription, snapshot, actividad  # noqa: F401
+        from app.models import user, push_subscription, snapshot, actividad, alarma, alarma  # noqa: F401
         await conn.run_sync(Base.metadata.create_all)
 
     await _migrate_users()
@@ -65,6 +65,37 @@ async def _migrate_users():
         )""",
         "CREATE INDEX IF NOT EXISTS ix_actividad_user_id ON actividad_usuarios(user_id)",
         "CREATE INDEX IF NOT EXISTS ix_actividad_ts ON actividad_usuarios(ts)",
+        # Tablas de alarmas
+        """CREATE TABLE IF NOT EXISTS alarmas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tecnico VARCHAR(120) NOT NULL,
+            celula VARCHAR(50) NOT NULL,
+            microcelda VARCHAR(80) NOT NULL,
+            nivel VARCHAR(20) NOT NULL DEFAULT 'leve',
+            estado VARCHAR(20) NOT NULL DEFAULT 'abierta',
+            asignado_a INTEGER NOT NULL,
+            asignado_nombre VARCHAR(120) NOT NULL,
+            fecha_creacion DATETIME NOT NULL,
+            fecha_cierre DATETIME,
+            tiempo_resolucion_min INTEGER,
+            notas TEXT,
+            sla_cumplido INTEGER
+        )""",
+        "CREATE INDEX IF NOT EXISTS ix_alarmas_tecnico ON alarmas(tecnico)",
+        "CREATE INDEX IF NOT EXISTS ix_alarmas_estado ON alarmas(estado)",
+        "CREATE INDEX IF NOT EXISTS ix_alarmas_asignado_a ON alarmas(asignado_a)",
+        "CREATE INDEX IF NOT EXISTS ix_alarmas_fecha_creacion ON alarmas(fecha_creacion)",
+        """CREATE TABLE IF NOT EXISTS alarma_eventos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            alarma_id INTEGER NOT NULL REFERENCES alarmas(id),
+            tipo VARCHAR(30) NOT NULL,
+            nivel_anterior VARCHAR(20),
+            nivel_nuevo VARCHAR(20),
+            user_id INTEGER,
+            descripcion TEXT,
+            ts DATETIME NOT NULL
+        )""",
+        "CREATE INDEX IF NOT EXISTS ix_alarma_eventos_alarma_id ON alarma_eventos(alarma_id)",
     ]
     async with engine.begin() as conn:
         for sql in migrations:

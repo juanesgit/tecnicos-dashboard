@@ -313,6 +313,13 @@ async def _capture_once():
         except Exception as inicio_exc:
             logger.warning("[Inicio] Error en registro: %s", inicio_exc)
 
+        # ── Procesar alarmas automáticas ──────────────────────────────────────
+        try:
+            from app.services.alarma_service import procesar_alarmas
+            await procesar_alarmas(datos)
+        except Exception as alarma_exc:
+            logger.warning("[Alarma] Error en procesamiento: %s", alarma_exc)
+
         # ── Evaluar alertas fuera de la sesión de snapshot ─────────────────
         try:
             from app.services.alert_service import evaluar_y_notificar
