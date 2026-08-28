@@ -1,28 +1,32 @@
 import { useState, useEffect, useRef } from 'react'
 import toast from 'react-hot-toast'
 import api from '../services/api'
-import { CELULAS_LIST, getMicroceldas, getCiudadesDeMicrocelda } from '../constants/celulas'
+import { CELULAS_LIST, getMicroceldas } from '../constants/celulas'
 
 const ROLES = [
-  { value: 'admin',                label: 'Admin' },
-  { value: 'lider_celula',         label: 'Líder de Célula' },
+  { value: 'admin',                 label: 'Admin' },
+  { value: 'lider_celula',          label: 'Líder de Célula' },
   { value: 'supervisor_microcelda', label: 'Supervisor de Microcelda' },
+  { value: 'supervisor_ccot',       label: 'Supervisor CCOT' },
 ]
 
 const BADGE_ROLE = {
   admin:                 'bg-violet-100 text-violet-700',
   lider_celula:          'bg-indigo-100 text-indigo-700',
   supervisor_microcelda: 'bg-blue-100 text-blue-700',
+  supervisor_ccot:       'bg-emerald-100 text-emerald-700',
 }
 
 const ROLE_LABEL = {
   admin:                 'Admin',
   lider_celula:          'Líder Célula',
   supervisor_microcelda: 'Supervisor',
+  supervisor_ccot:       'Sup. CCOT',
 }
 
-const NEEDS_CELULA     = (role) => role === 'lider_celula' || role === 'supervisor_microcelda'
-const NEEDS_MICROCELDA = (role) => role === 'supervisor_microcelda'
+const NEEDS_CELULA      = (role) => role === 'lider_celula' || role === 'supervisor_microcelda'
+const NEEDS_MICROCELDA  = (role) => role === 'supervisor_microcelda'
+const NEEDS_CELULAS     = (role) => role === 'supervisor_ccot'
 
 /* ── Menú de acciones por usuario ── */
 function AccionesMenu({ usuario, onEdit, onToggle, toggling }) {
@@ -137,26 +141,33 @@ function ModalUsuario({ usuario, onClose, onSaved }) {
     ? usuario.microceldas
     : (usuario?.microcelda ? [usuario.microcelda] : [])
 
+  // Resolver lista inicial de células para supervisor_ccot
+  const initialCelulas = usuario?.celulas?.length
+    ? usuario.celulas
+    : (usuario?.celula && usuario?.role === 'supervisor_ccot' ? [usuario.celula] : [])
+
   const [form, setForm] = useState({
     username:    usuario?.username  ?? '',
     full_name:   usuario?.full_name ?? '',
     password:    '',
     role:        usuario?.role      ?? 'supervisor_microcelda',
     celula:      usuario?.celula    ?? '',
-    microceldas: initialMicroceldas,   // siempre es un array
+    microceldas: initialMicroceldas,
+    celulas:     initialCelulas,
   })
   const [saving, setSaving] = useState(false)
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
-  const celulaMicroceldas = getMicroceldas(form.celula)  // opciones disponibles
+  const celulaMicroceldas = getMicroceldas(form.celula)  // opciones disponibles para supervisor_microcelda
 
   const handleCelulaChange = (v) => setForm((f) => ({ ...f, celula: v, microceldas: [] }))
 
   const handleRoleChange = (v) => setForm((f) => ({
     ...f,
-    role: v,
+    role:        v,
     celula:      v === 'admin' ? '' : f.celula,
     microceldas: v !== 'supervisor_microcelda' ? [] : f.microceldas,
+    celulas:     v !== 'supervisor_ccot' ? [] : f.celulas,
   }))
 
   const toggleMicrocelda = (mc) => {
@@ -168,23 +179,37 @@ function ModalUsuario({ usuario, onClose, onSaved }) {
     }))
   }
 
+  const toggleCelula = (c) => {
+    setForm((f) => ({
+      ...f,
+      celulas: f.celulas.includes(c)
+        ? f.celulas.filter((x) => x !== c)
+        : [...f.celulas, c],
+    }))
+  }
+
   const submit = async (e) => {
     e.preventDefault()
     if (NEEDS_MICROCELDA(form.role) && form.celula && form.microceldas.length === 0) {
       toast.error('Selecciona al menos una microcelda')
       return
     }
+    if (NEEDS_CELULAS(form.role) && form.celulas.length === 0) {
+      toast.error('Selecciona al menos una célula')
+      return
+    }
     setSaving(true)
     try {
       const body = {
-        username:  form.username,
-        full_name: form.full_name,
-        role:      form.role,
-        celula:    NEEDS_CELULA(form.role) ? form.celula : null,
+        username:    form.username,
+        full_name:   form.full_name,
+        role:        form.role,
+        celula:      NEEDS_CELULA(form.role) ? (form.celula || null) : null,
         microceldas: NEEDS_MICROCELDA(form.role) ? form.microceldas : null,
+        celulas:     NEEDS_CELULAS(form.role) ? form.celulas : null,
       }
       if (form.password) body.password = form.password
-      else if (!isEdit)  body.password = form.password  // requerido en creación (validado por HTML)
+      else if (!isEdit)  body.password = form.password
 
       if (isEdit) {
         await api.put(`/usuarios/${usuario.id}`, body)
@@ -204,17 +229,11 @@ function ModalUsuario({ usuario, onClose, onSaved }) {
   const inputCls = 'w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 bg-white'
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ paddingBottom: '72px' }}>
-      <form
-        onSubmit={submit}
-        className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md shadow-xl"
-        style={{ maxHeight: 'calc(100dvh - 140px)', display: 'flex', flexDirection: 'column' }}
-      >
-        {/* Header fijo */}
-        <div style={{ flexShrink: 0 }} className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md shadow-xl max-h-[92vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-2xl z-10">
           <h2 className="font-semibold text-slate-800">{isEdit ? 'Editar usuario' : 'Nuevo usuario'}</h2>
           <button
-            type="button"
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
           >
@@ -224,8 +243,7 @@ function ModalUsuario({ usuario, onClose, onSaved }) {
           </button>
         </div>
 
-        {/* Cuerpo scrolleable */}
-        <div style={{ overflowY: 'auto', maxHeight: 'calc(100dvh - 280px)', flexShrink: 1 }} className="px-5 py-4 space-y-4">
+        <form onSubmit={submit} className="p-5 space-y-4">
           {!isEdit && (
             <div>
               <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Usuario</label>
@@ -258,6 +276,7 @@ function ModalUsuario({ usuario, onClose, onSaved }) {
             </select>
           </div>
 
+          {/* ── Célula (para lider_celula y supervisor_microcelda) ── */}
           {NEEDS_CELULA(form.role) && (
             <div>
               <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Célula</label>
@@ -268,7 +287,7 @@ function ModalUsuario({ usuario, onClose, onSaved }) {
             </div>
           )}
 
-          {/* ── Multi-select de microceldas (supervisor) ── */}
+          {/* ── Multi-select de microceldas (supervisor_microcelda) ── */}
           {NEEDS_MICROCELDA(form.role) && form.celula && (
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -323,7 +342,58 @@ function ModalUsuario({ usuario, onClose, onSaved }) {
             </div>
           )}
 
-          {/* Alcance supervisor — resumen */}
+          {/* ── Multi-select de células (supervisor_ccot) ── */}
+          {NEEDS_CELULAS(form.role) && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  Células asignadas
+                </label>
+                {form.celulas.length > 0 && (
+                  <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+                    {form.celulas.length} seleccionada{form.celulas.length !== 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
+              <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-52 overflow-y-auto">
+                {CELULAS_LIST.map((c) => {
+                  const checked = form.celulas.includes(c)
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => toggleCelula(c)}
+                      style={{ WebkitTapHighlightColor: 'transparent' }}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm text-left transition-colors ${
+                        checked ? 'bg-emerald-50' : 'bg-white hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
+                        checked ? 'border-emerald-500 bg-emerald-500' : 'border-slate-300'
+                      }`}>
+                        {checked && (
+                          <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </span>
+                      <span className={`font-medium ${checked ? 'text-emerald-700' : 'text-slate-700'}`}>{c}</span>
+                    </button>
+                  )
+                })}
+              </div>
+              {form.celulas.length === 0 && (
+                <p className="text-xs text-red-400 mt-1.5 flex items-center gap-1">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Selecciona al menos una célula
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* ── Resumen alcance supervisor_microcelda ── */}
           {form.role === 'supervisor_microcelda' && form.celula && form.microceldas.length > 0 && (
             <div className="bg-blue-50 border border-blue-100 rounded-xl px-3 py-3 space-y-2">
               <p className="text-xs font-semibold text-blue-700">
@@ -343,29 +413,46 @@ function ModalUsuario({ usuario, onClose, onSaved }) {
             </div>
           )}
 
-          {/* Alcance líder */}
+          {/* ── Resumen alcance lider_celula ── */}
           {form.role === 'lider_celula' && form.celula && (
             <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-3 space-y-1">
               <p className="text-xs font-semibold text-indigo-700">🗺 Alcance · Célula {form.celula}</p>
-              <p className="text-xs text-indigo-500">{celulaMicroceldas.length} microcelda{celulaMicroceldas.length !== 1 ? 's' : ''} asignadas</p>
+              <p className="text-xs text-indigo-500">{getMicroceldas(form.celula).length} microcelda{getMicroceldas(form.celula).length !== 1 ? 's' : ''} asignadas</p>
               <p className="text-xs text-indigo-400">Verá todos los técnicos de su célula.</p>
             </div>
           )}
 
-        </div>
+          {/* ── Resumen alcance supervisor_ccot ── */}
+          {form.role === 'supervisor_ccot' && form.celulas.length > 0 && (
+            <div className="bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-3 space-y-2">
+              <p className="text-xs font-semibold text-emerald-700">
+                🏢 Alcance CCOT · {form.celulas.length === 1 ? form.celulas[0] : `${form.celulas.length} células`}
+              </p>
+              {form.celulas.length > 1 && (
+                <div className="flex flex-wrap gap-1">
+                  {form.celulas.map((c) => (
+                    <span key={c} className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">{c}</span>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-emerald-400">
+                Verá todos los técnicos de {form.celulas.length === 1 ? 'esta célula' : 'estas células'}.
+              </p>
+            </div>
+          )}
 
-        {/* Botones fijos al fondo */}
-        <div style={{ flexShrink: 0 }} className="flex gap-3 px-5 py-4 border-t border-slate-100 bg-white rounded-b-2xl">
-          <button type="button" onClick={onClose}
-            className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50 transition-colors">
-            Cancelar
-          </button>
-          <button type="submit" disabled={saving}
-            className="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:bg-violet-300 text-white text-sm font-semibold transition-colors">
-            {saving ? 'Guardando…' : isEdit ? 'Guardar cambios' : 'Crear usuario'}
-          </button>
-        </div>
-      </form>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose}
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50 transition-colors">
+              Cancelar
+            </button>
+            <button type="submit" disabled={saving}
+              className="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:bg-violet-300 text-white text-sm font-semibold transition-colors">
+              {saving ? 'Guardando…' : isEdit ? 'Guardar cambios' : 'Crear usuario'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }
@@ -478,6 +565,17 @@ function UserRow({ u, onEdit, onToggle, toggling }) {
   const initials = u.full_name?.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?'
   const avatarColor = u.is_active ? 'bg-violet-100 text-violet-600' : 'bg-slate-100 text-slate-400'
 
+  // Texto de alcance según rol
+  const scope = (() => {
+    if (u.role === 'supervisor_ccot' && u.celulas?.length) {
+      return u.celulas.length === 1
+        ? u.celulas[0]
+        : `${u.celulas.length} células`
+    }
+    if (u.celula) return u.celula
+    return ''
+  })()
+
   return (
     <div className={`bg-white rounded-xl border px-4 py-3 flex items-center gap-3 transition-opacity ${
       u.is_active ? 'border-slate-100' : 'border-slate-100 opacity-60'
@@ -499,7 +597,7 @@ function UserRow({ u, onEdit, onToggle, toggling }) {
         </div>
         <p className="text-xs text-slate-400 truncate">
           @{u.username}
-          {u.celula     ? ` · ${u.celula}`     : ''}
+          {scope ? ` · ${scope}` : ''}
           {u.microcelda ? ` / ${u.microcelda}` : ''}
         </p>
       </div>

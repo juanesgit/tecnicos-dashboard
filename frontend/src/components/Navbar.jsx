@@ -17,11 +17,12 @@ const ROLE_LABEL = {
   admin:                 'Administrador',
   lider_celula:          'Líder de célula',
   supervisor_microcelda: 'Supervisor',
+  supervisor_ccot:       'Supervisor CCOT',
 }
 
 export default function Navbar() {
   const { user, logout } = useAuth()
-  const { activeTab, setActiveTab } = useTabStore()
+  const { setActiveTab } = useTabStore()
   const [menuOpen, setMenuOpen]     = useState(false)
   const [pushStatus, setPushStatus] = useState('idle') // idle | subscribed | unsupported | loading
 
@@ -121,25 +122,6 @@ export default function Navbar() {
               </div>
 
               <div className="py-1">
-                {/* Gestión de usuarios — solo admin */}
-                {isAdmin && (
-                  <button
-                    onClick={() => { setActiveTab(activeTab === 'usuarios' ? 'resumen' : 'usuarios'); setMenuOpen(false) }}
-                    className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
-                      activeTab === 'usuarios'
-                        ? 'bg-violet-50 text-violet-700 font-semibold'
-                        : 'text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                        d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                    </svg>
-                    Gestión de usuarios
-                    {activeTab === 'usuarios' && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-violet-500" />}
-                  </button>
-                )}
-
                 {/* Notificaciones push */}
                 {pushStatus !== 'unsupported' && (
                   <button
