@@ -1,10 +1,13 @@
 """
-Servicio de alarmas — detección, escalado, asignación y cierre automático.
+Servicio de alarmas — detección, escalado y cierre automático.
 
-Reglas de nivel (basadas en el tiempo de vida de la alarma):
-  leve      →  0-29 min   (SLA 45 min)
-  moderada  → 30-59 min   (SLA 20 min)
-  crítica   → ≥ 60 min    (SLA 10 min)
+Reglas de nivel (basadas en los minutos de retraso REAL del técnico en cada snapshot):
+  leve      → retraso 30 - 59 min   (SLA 45 min)
+  moderada  → retraso 60 - 89 min   (SLA 20 min)
+  crítica   → retraso ≥ 90 min      (SLA 10 min)
+
+Solo se crea alarma cuando el retraso es ≥ 30 min.
+El nivel se actualiza en cada snapshot según el retraso actual del técnico.
 """
 from __future__ import annotations
 
@@ -19,17 +22,27 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-ESTADOS_RETRASO = {"Retraso actual", "Retraso en siguiente"}
+ESTADOS_RETRASO  = {"Retraso actual", "Retraso en siguiente"}
+MIN_RETRASO_LEVE = 30   # Umbral mínimo para crear alarma
 
 SLA_MIN = {"leve": 45, "moderada": 20, "critica": 10}
 
 
-def _nivel_por_edad(minutos: float) -> str:
-    if minutos >= 60:
+def _nivel_por_minutos(minutos: int) -> str:
+    """Nivel según minutos REALES de retraso del técnico."""
+    if minutos >= 90:
         return "critica"
-    if minutos >= 30:
+    if minutos >= 60:
         return "moderada"
     return "leve"
+
+
+def _minutos_retraso(d: Dict) -> int:
+    """Extrae los minutos de retraso reales del técnico desde el dict del snapshot."""
+    estado = d.get("estado_actual", "")
+    if estado == "Retraso en siguiente":
+        return int(d.get("minutos_retraso_siguiente", 0) or 0)
+    return int(d.get("minutos_retraso", 0) or 0)
 
 
 async def _supervisores_ccot() -> List[Dict[str, Any]]:
@@ -38,7 +51,6 @@ async def _supervisores_ccot() -> List[Dict[str, Any]]:
     supers = [u for u in online if u.get("role") == "supervisor_ccot"]
     if supers:
         return supers
-    # Fallback: todos los supervisor_ccot activos de BD
     from app.database import AsyncSessionLocal
     from app.models.user import User
     from sqlalchemy import select as sa_select
@@ -105,12 +117,15 @@ async def procesar_alarmas(datos: List[Dict[str, Any]]) -> None:
     tz  = pytz.timezone(settings.APP_TIMEZONE)
     now = datetime.now(tz).replace(tzinfo=None)
 
+    # ── Técnicos retrasados con ≥ 30 minutos de retraso ──────────────────────
     retrasados: Dict[str, Dict] = {}
     for d in datos:
         if d.get("estado_actual") in ESTADOS_RETRASO:
-            tec = d.get("Técnico") or d.get("técnico") or ""
-            if tec:
-                retrasados[tec] = d
+            min_ret = _minutos_retraso(d)
+            if min_ret >= MIN_RETRASO_LEVE:
+                tec = d.get("Técnico") or d.get("técnico") or ""
+                if tec:
+                    retrasados[tec] = d
 
     supervisores = await _supervisores_ccot()
     eventos_nuevos: List[AlarmaEvento] = []
@@ -120,42 +135,47 @@ async def procesar_alarmas(datos: List[Dict[str, Any]]) -> None:
         abiertas: List[Alarma] = list(result.scalars().all())
         abiertas_map: Dict[str, Alarma] = {a.tecnico: a for a in abiertas}
 
-        # 1. Cierre automático
+        # ── 1. Cierre automático: técnico ya no retrasado ≥ 30 min ───────────
         for alarma in abiertas:
             if alarma.tecnico not in retrasados:
-                alarma.estado  = "cerrada"
+                alarma.estado       = "cerrada"
                 alarma.fecha_cierre = now
                 edad = int((now - alarma.fecha_creacion).total_seconds() / 60)
                 alarma.tiempo_resolucion_min = edad
                 alarma.sla_cumplido = edad <= SLA_MIN[alarma.nivel]
                 eventos_nuevos.append(AlarmaEvento(
                     alarma_id=alarma.id, tipo="cierre_auto",
-                    descripcion=f"Técnico ya no retrasado tras {edad} min.", ts=now,
+                    descripcion=f"Técnico ya no presenta retraso ≥ 30 min. ({edad} min abierta)",
+                    ts=now,
                 ))
-                logger.info("[Alarma] Cierre auto: %s (%d min)", alarma.tecnico, edad)
+                logger.info("[Alarma] Cierre auto: %s (%d min abierta)", alarma.tecnico, edad)
 
-        # 2. Escalado automático
+        # ── 2. Escalado por minutos REALES de retraso del técnico ─────────────
         for alarma in abiertas:
             if alarma.estado != "abierta":
                 continue
-            edad = (now - alarma.fecha_creacion).total_seconds() / 60
-            nuevo = _nivel_por_edad(edad)
-            if nuevo != alarma.nivel:
+            d = retrasados.get(alarma.tecnico)
+            if not d:
+                continue
+            min_ret   = _minutos_retraso(d)
+            nivel_nuevo = _nivel_por_minutos(min_ret)
+            if nivel_nuevo != alarma.nivel:
                 ant = alarma.nivel
-                alarma.nivel = nuevo
+                alarma.nivel = nivel_nuevo
                 eventos_nuevos.append(AlarmaEvento(
                     alarma_id=alarma.id, tipo="escalada",
-                    nivel_anterior=ant, nivel_nuevo=nuevo,
-                    descripcion=f"Escalada a {nuevo} tras {int(edad)} min.", ts=now,
+                    nivel_anterior=ant, nivel_nuevo=nivel_nuevo,
+                    descripcion=f"Escalada a {nivel_nuevo}: {min_ret} min de retraso.",
+                    ts=now,
                 ))
-                logger.info("[Alarma] Escalada: %s %s→%s", alarma.tecnico, ant, nuevo)
+                logger.info("[Alarma] Escalada: %s %s→%s (%d min)", alarma.tecnico, ant, nivel_nuevo, min_ret)
                 asyncio.create_task(_push(
                     alarma.asignado_a,
-                    f"⚠️ Alarma escalada a {nuevo.upper()}",
-                    f"{alarma.tecnico} — {alarma.celula}/{alarma.microcelda}",
+                    f"⚠️ Alarma escalada a {nivel_nuevo.upper()}",
+                    f"{alarma.tecnico} — {alarma.celula}/{alarma.microcelda} ({min_ret} min de retraso)",
                 ))
 
-        # 3. Nuevas alarmas
+        # ── 3. Nuevas alarmas (solo técnicos con ≥ 30 min de retraso) ─────────
         nuevas = []
         for tec, d in retrasados.items():
             if tec in abiertas_map:
@@ -164,51 +184,54 @@ async def procesar_alarmas(datos: List[Dict[str, Any]]) -> None:
             if not sup:
                 logger.warning("[Alarma] Sin supervisores disponibles.")
                 break
-            # Calcular minutos de retraso real según tipo
-            estado_act = d.get("estado_actual", "")
-            if estado_act == "Retraso en siguiente":
-                min_ret = int(d.get("minutos_retraso_siguiente", 0) or 0)
-            else:
-                min_ret = int(d.get("minutos_retraso", 0) or 0)
+
+            min_ret = _minutos_retraso(d)
+            nivel   = _nivel_por_minutos(min_ret)
 
             nueva = Alarma(
-                tecnico=tec,
-                celula=d.get("celula", "Sin célula") or "Sin célula",
-                microcelda=d.get("microcelda", "Sin microcelda") or "Sin microcelda",
-                ciudad=d.get("ciudad_nodo") or d.get("ciudad_actual") or None,
-                tipo_retraso=estado_act or None,
-                minutos_retraso_inicio=min_ret if min_ret > 0 else None,
-                nivel="leve", estado="abierta",
-                asignado_a=sup["user_id"],
-                asignado_nombre=sup.get("full_name", ""),
-                fecha_creacion=now,
+                tecnico        = tec,
+                celula         = d.get("celula", "Sin clasificar") or "Sin clasificar",
+                microcelda     = d.get("microcelda", "Sin clasificar") or "Sin clasificar",
+                ciudad         = d.get("ciudad_nodo") or d.get("ciudad_actual") or None,
+                tipo_retraso   = d.get("estado_actual") or None,
+                minutos_retraso_inicio = min_ret if min_ret > 0 else None,
+                nivel          = nivel,
+                estado         = "abierta",
+                asignado_a     = sup["user_id"],
+                asignado_nombre = sup.get("full_name", ""),
+                fecha_creacion = now,
             )
             session.add(nueva)
-            nuevas.append((nueva, sup))
-            abiertas_map[tec] = nueva  # evita doble asignación en el mismo ciclo
+            nuevas.append((nueva, sup, min_ret))
+            abiertas_map[tec] = nueva
 
         if nuevas:
             await session.flush()
-            for nueva, sup in nuevas:
+            for nueva, sup, min_ret in nuevas:
                 eventos_nuevos.append(AlarmaEvento(
                     alarma_id=nueva.id, tipo="creacion",
-                    nivel_nuevo="leve", user_id=sup["user_id"],
-                    descripcion=f"Asignada a {sup.get('full_name', '')}", ts=now,
+                    nivel_nuevo=nueva.nivel, user_id=sup["user_id"],
+                    descripcion=f"Asignada a {sup.get('full_name', '')}. Retraso: {min_ret} min.",
+                    ts=now,
                 ))
-                logger.info("[Alarma] Nueva: %s → sup %s", nueva.tecnico, sup.get("full_name"))
+                logger.info(
+                    "[Alarma] Nueva: %s (%s) %d min → sup %s",
+                    nueva.tecnico, nueva.nivel, min_ret, sup.get("full_name"),
+                )
                 asyncio.create_task(_push(
                     sup["user_id"], "🔴 Nueva alarma asignada",
-                    f"{nueva.tecnico} — {nueva.celula}/{nueva.microcelda}",
+                    f"{nueva.tecnico} — {nueva.celula} ({min_ret} min de retraso)",
                 ))
 
         for ev in eventos_nuevos:
             session.add(ev)
 
         await session.commit()
-        if nuevas or any(a.estado == "cerrada" for a in abiertas):
+
+        n_nuevas  = len(nuevas)
+        n_cerradas = sum(1 for a in abiertas if a.estado == "cerrada")
+        if n_nuevas or n_cerradas:
             logger.info(
-                "[Alarma] Ciclo: nuevas=%d cerradas=%d retrasados=%d",
-                len(nuevas),
-                sum(1 for a in abiertas if a.estado == "cerrada"),
-                len(retrasados),
+                "[Alarma] Ciclo: %d retrasados≥30min, nuevas=%d, cerradas=%d",
+                len(retrasados), n_nuevas, n_cerradas,
             )
