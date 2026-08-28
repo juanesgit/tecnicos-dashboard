@@ -112,6 +112,14 @@ function TecnicoPredicRow({ t, onDetalle }) {
             Ver detalles
           </button>
         )}
+        <div className="flex flex-wrap gap-1 mt-1">
+          {(t.pendientes_post_siguiente > 0) && (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700 tabular-nums"
+              title="OTs pendientes después de la siguiente actividad">
+              📋 {t.pendientes_post_siguiente} pend.
+            </span>
+          )}
+        </div>
       </div>
       <div className="text-right shrink-0">
         {sinDatos ? (
@@ -127,6 +135,24 @@ function TecnicoPredicRow({ t, onDetalle }) {
         )}
       </div>
     </div>
+  )
+}
+
+const MAX_VISIBLE = 2
+
+function CiudadesTag({ ciudades = [], className = '' }) {
+  const fmt      = ciudades.map(toTitleCase)
+  const visibles = fmt.slice(0, MAX_VISIBLE)
+  const resto    = fmt.length - MAX_VISIBLE
+  return (
+    <span className={`flex items-center gap-1 flex-wrap ${className}`} title={fmt.join(', ')}>
+      <span className="text-[9px] text-slate-400 truncate">{visibles.join(', ')}</span>
+      {resto > 0 && (
+        <span className="inline-flex items-center px-1 py-0 rounded-full text-[8px] font-semibold bg-slate-100 text-slate-500 shrink-0">
+          +{resto}
+        </span>
+      )}
+    </span>
   )
 }
 
@@ -164,7 +190,8 @@ function CeldaPrediccionModal({ celda, onClose, onDetalle }) {
   }
 
   if (!celda) return null
-  const { mc, celula, t, punto } = celda
+  const { mc, titulo, celula, t, punto } = celda
+  const displayMc = titulo || mc
   const pct = punto?.pct_en_riesgo ?? null
   const c   = cellColor(pct)
 
@@ -291,8 +318,13 @@ function CeldaPrediccionModal({ celda, onClose, onDetalle }) {
         </div>
         <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 shrink-0">
           <div className="min-w-0">
-            <h2 className="font-bold text-slate-800 text-sm truncate">{mc}</h2>
-            <p className="text-[10px] text-slate-400">{celula || '—'} · Predicción 6pm</p>
+            <h2 className="font-bold text-slate-800 text-sm truncate">{displayMc}</h2>
+            {(() => {
+              const cs = [...new Set((celda?.rows ?? []).filter(r => r.microcelda === mc && r.ciudad_nodo).map(r => r.ciudad_nodo))].sort()
+              return cs.length > 0
+                ? <CiudadesTag ciudades={cs} className="mt-0.5" />
+                : <p className="text-[10px] text-slate-400">{celula || '—'} · Predicción 6pm</p>
+            })()}
           </div>
           <button onClick={cerrar}
             className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 shrink-0 ml-3">
@@ -316,8 +348,13 @@ function CeldaPrediccionModal({ celda, onClose, onDetalle }) {
         >
           <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 shrink-0">
             <div>
-              <h2 className="font-bold text-slate-800 text-sm">{mc}</h2>
-              <p className="text-[10px] text-slate-400">{celula || '—'} · Predicción 6pm · snapshot {t}</p>
+              <h2 className="font-bold text-slate-800 text-sm">{displayMc}</h2>
+              {(() => {
+                const cs = [...new Set((celda?.rows ?? []).filter(r => r.microcelda === mc && r.ciudad_nodo).map(r => r.ciudad_nodo))].sort()
+                return cs.length > 0
+                  ? <><CiudadesTag ciudades={cs} className="mt-0.5" /><span className="text-[10px] text-slate-400">· snapshot {t}</span></>
+                  : <p className="text-[10px] text-slate-400">{celula || '—'} · Predicción 6pm · snapshot {t}</p>
+              })()}
             </div>
             <button onClick={cerrar}
               className="text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100 transition-colors">
@@ -340,13 +377,34 @@ function CeldaPrediccionModal({ celda, onClose, onDetalle }) {
 ══════════════════════════════════════════════════════════════ */
 export default function MapaCalorPrediccion({ filtros = {}, rows = [], onDetalle }) {
   const [horas,        setHoras]        = useState(4)
-  const [modo,         setModo]         = useState('%')           // '%' | 'N'
-  const [granularidad, setGranularidad] = useState('microcelda')  // 'microcelda' | 'celula'
+  const [modo,         setModo]         = useState('%')                       // '%' | 'N'
+  const [granularidad, setGranularidad] = useState('celula')                   // 'celula' | 'microcelda' | 'ciudad'
   const [data,         setData]         = useState(null)
   const [loading,      setLoading]      = useState(false)
   const [error,        setError]        = useState(null)
+  const [ciudadData,   setCiudadData]   = useState(null)
+  const [ciudadLoading,setCiudadLoading]= useState(false)
   const [celdaSel,     setCeldaSel]     = useState(null)
-  const [expandidos,   setExpandidos]   = useState(new Set())
+  const [expandidos,          setExpandidos]          = useState(new Set())
+  const [expandedCiudades,    setExpandedCiudades]    = useState(new Set())
+  const [expandedMicrosInCel, setExpandedMicrosInCel] = useState(new Set())
+
+  const toggleCiudad = (mc, ciudad) => {
+    const k = `${mc}::${ciudad}`
+    setExpandedCiudades(prev => {
+      const next = new Set(prev)
+      next.has(k) ? next.delete(k) : next.add(k)
+      return next
+    })
+  }
+  const toggleMicroInCel = (mc) => {
+    setExpandedMicrosInCel(prev => {
+      const next = new Set(prev)
+      next.has(mc) ? next.delete(mc) : next.add(mc)
+      return next
+    })
+  }
+
   const scrollRef = useRef(null)
 
   const handleGranularidad = (g) => {
@@ -388,6 +446,27 @@ export default function MapaCalorPrediccion({ filtros = {}, rows = [], onDetalle
 
   useEffect(() => { cargar() }, [cargar])
 
+  // Fetch dedicado para ciudades desde /historico/ciudades
+  useEffect(() => {
+    if (granularidad !== 'ciudad') return
+    let cancelled = false
+    const fetch_ = async () => {
+      setCiudadLoading(true)
+      try {
+        const params = new URLSearchParams({ horas })
+        if (filtros.celula) params.set('celula', filtros.celula)
+        const { data: resp } = await api.get(`/historico/ciudades?${params}`)
+        if (!cancelled) setCiudadData(resp)
+      } catch (e) {
+        if (!cancelled) toast.error(e.response?.data?.detail || 'Error al cargar ciudades')
+      } finally {
+        if (!cancelled) setCiudadLoading(false)
+      }
+    }
+    fetch_()
+    return () => { cancelled = true }
+  }, [horas, filtros.celula, granularidad])
+
   useEffect(() => {
     if (!data || !scrollRef.current) return
     requestAnimationFrame(() => {
@@ -406,9 +485,9 @@ export default function MapaCalorPrediccion({ filtros = {}, rows = [], onDetalle
   const tiempos = data?.tiempos ?? []
 
   // ── Agregar por célula ──────────────────────────────────────
-  const celulaSeries  = {}   // { [celula]: [{ t, en_riesgo, ajustado, a_tiempo, total, pct_en_riesgo }] }
-  const celMicros     = {}   // { [celula]: [mc, ...] }
-  const celulaTimeMap = {}   // auxiliar
+  const celulaSeries  = {}
+  const celMicros     = {}
+  const celulaTimeMap = {}
 
   for (const [mc, pts] of Object.entries(baseSeries)) {
     const cel = pts[0]?.celula ?? 'Sin célula'
@@ -430,10 +509,31 @@ export default function MapaCalorPrediccion({ filtros = {}, rows = [], onDetalle
       .map(p => ({ ...p, pct_en_riesgo: p.total > 0 ? (p.en_riesgo / p.total) * 100 : 0 }))
       .sort((a, b) => a.t.localeCompare(b.t))
   }
+
+  // ── Ciudad: datos desde /historico/ciudades ─────────────────
+  const ciudadSeries = ciudadData?.series ?? {}
+  // ciudadMicros: ciudad → [microceldas]
+  // Fuente 1: rows en vivo; Fuente 2: campo microcelda de la serie histórica (fallback)
+  const ciudadMicros = {}
+  for (const r of rows) {
+    if (!r.microcelda || !r.ciudad_nodo) continue
+    if (!ciudadMicros[r.ciudad_nodo]) ciudadMicros[r.ciudad_nodo] = []
+    if (!ciudadMicros[r.ciudad_nodo].includes(r.microcelda)) ciudadMicros[r.ciudad_nodo].push(r.microcelda)
+  }
+  for (const [ciudad, pts] of Object.entries(ciudadSeries)) {
+    if (!ciudadMicros[ciudad]) {
+      const mc = pts[0]?.microcelda
+      if (mc) ciudadMicros[ciudad] = [mc]
+    }
+  }
   // ────────────────────────────────────────────────────────────
 
-  const esCelula    = granularidad === 'celula'
-  const activeSeries = esCelula ? celulaSeries : baseSeries
+  const esCelula  = granularidad === 'celula'
+  const esCiudad  = granularidad === 'ciudad'
+  const activeSeries = esCelula ? celulaSeries : esCiudad ? ciudadSeries : baseSeries
+
+  // Label para cabecera de fila
+  const rowLabel = esCelula ? 'Célula' : esCiudad ? 'Ciudad' : 'Microcelda'
 
   // Items ordenados por último snapshot
   const displayItems = Object.entries(activeSeries)
@@ -445,7 +545,7 @@ export default function MapaCalorPrediccion({ filtros = {}, rows = [], onDetalle
             ? (pts[pts.length - 1]?.en_riesgo ?? 0)
             : (pts[pts.length - 1]?.pct_en_riesgo ?? 0))
         : 0
-      const celula  = !esCelula ? (pts[0]?.celula ?? '') : ''
+      const celula  = (!esCelula && !esCiudad) ? (pts[0]?.celula ?? '') : ''
       return { key, celula, prom, lastPct }
     })
     .sort((a, b) => b.lastPct - a.lastPct)
@@ -464,7 +564,7 @@ export default function MapaCalorPrediccion({ filtros = {}, rows = [], onDetalle
     : 0
 
   const handleCeldaClick = (key, t, punto, celula) => {
-    if (esCelula) return   // sin modal en vista célula
+    if (esCelula || esCiudad) return   // sin modal en vista agrupada
     if (!punto) return
     setCeldaSel({ mc: key, celula, t, punto })
   }
@@ -479,16 +579,20 @@ export default function MapaCalorPrediccion({ filtros = {}, rows = [], onDetalle
           </p>
           <p className="text-[10px] text-slate-400">
             {hasDatos
-              ? `${displayItems.length} ${esCelula ? 'célula' : 'microcelda'}${displayItems.length !== 1 ? 's' : ''} · ${tiempos.length} snapshots`
+              ? `${displayItems.length} ${esCelula ? 'célula' : esCiudad ? 'ciudad' : 'microcelda'}${displayItems.length !== 1 ? 's' : ''} · ${tiempos.length} snapshots`
               : 'Sin datos'}
-            {hasDatos && !esCelula && <span className="ml-2 text-cyan-500">· Toca una celda para ver detalles</span>}
+            {hasDatos && !esCelula && !esCiudad && <span className="ml-2 text-cyan-500">· Toca una celda para ver detalles</span>}
           </p>
         </div>
         {/* Controles: 1 fila compacta */}
         <div className="flex items-center gap-1.5">
-          {/* Micro / Célula */}
+          {/* Micro / Ciudad / Célula */}
           <div className="flex rounded-lg overflow-hidden border border-slate-200">
-            {[{ val: 'microcelda', label: 'Micro' }, { val: 'celula', label: 'Célula' }].map(o => (
+            {[
+              { val: 'celula',     label: 'Célula' },
+              { val: 'microcelda', label: 'Micro'  },
+              { val: 'ciudad',     label: 'Ciudad' },
+            ].map(o => (
               <button key={o.val} onClick={() => handleGranularidad(o.val)}
                 style={{ WebkitTapHighlightColor: 'transparent' }}
                 className={`px-2.5 py-1.5 text-xs font-semibold transition-colors ${
@@ -555,7 +659,7 @@ export default function MapaCalorPrediccion({ filtros = {}, rows = [], onDetalle
               <thead>
                 <tr className="bg-slate-50">
                   <th className="sticky left-0 bg-slate-50 z-10 px-2 py-1.5 text-left font-semibold text-slate-500 border-b border-r border-slate-100 w-28">
-                    {esCelula ? 'Célula' : 'Microcelda'}
+                    {rowLabel}
                   </th>
                   {tiempos.map(t => (
                     <th key={t} className="px-1 py-1.5 text-center font-medium text-slate-400 border-b border-slate-100" style={{ minWidth: modo === 'N' ? 52 : 32 }}>
@@ -576,30 +680,42 @@ export default function MapaCalorPrediccion({ filtros = {}, rows = [], onDetalle
                   const avgTot    = pts.length ? pts.reduce((s, p) => s + (p.total ?? 0), 0) / pts.length : null
                   const promCellN = cellColorN(avgRiesgo != null ? Math.round(avgRiesgo) : null, maxN)
 
+                  const ciudadesMC = (!esCelula && !esCiudad)
+                    ? [...new Set(rows.filter(r => r.microcelda === key && r.ciudad_nodo).map(r => r.ciudad_nodo))].sort()
+                    : []
+
                   // ── Breakdown para sub-fila expandida ──
                   let actList    = []
                   let maxActRisk = 1
                   let mcBreakdown = []
 
-                  if (!esCelula) {
-                    // Vista microcelda → actividades en vivo
+                  if (!esCelula && !esCiudad) {
+                    // Vista microcelda → agrupado por ciudad → tipos de trabajo
                     const tecsMC = rows.filter(r => r.microcelda === key)
-                    const actMap = {}
+                    const ciudadMap = {}
                     for (const r of tecsMC) {
+                      const ciudad = r.ciudad_nodo || 'Sin ciudad'
+                      if (!ciudadMap[ciudad]) ciudadMap[ciudad] = { total: 0, riesgo: 0, actMap: {} }
+                      ciudadMap[ciudad].total++
+                      const esRiesgo = r.riesgo_6pm === 'En riesgo'
+                      if (esRiesgo) ciudadMap[ciudad].riesgo++
                       const act = r.actividad_actual || 'Sin actividad'
-                      if (!actMap[act]) actMap[act] = { total: 0, riesgo: 0, ajustado: 0, aTiempo: 0 }
-                      actMap[act].total++
-                      if (r.riesgo_6pm === 'En riesgo') actMap[act].riesgo++
-                      else if (r.riesgo_6pm === 'Ajustado') actMap[act].ajustado++
-                      else if (r.riesgo_6pm === 'A tiempo') actMap[act].aTiempo++
+                      if (!ciudadMap[ciudad].actMap[act]) ciudadMap[ciudad].actMap[act] = { total: 0, riesgo: 0 }
+                      ciudadMap[ciudad].actMap[act].total++
+                      if (esRiesgo) ciudadMap[ciudad].actMap[act].riesgo++
                     }
-                    actList    = Object.entries(actMap)
-                      .filter(([, d]) => d.riesgo > 0)
-                      .sort((a, b) => b[1].riesgo - a[1].riesgo)
-                    maxActRisk = Math.max(1, ...actList.map(([, d]) => d.riesgo || 0))
+                    actList = Object.entries(ciudadMap)
+                      .map(([ciudad, { total, riesgo, actMap }]) => ({
+                        ciudad, total, riesgo,
+                        actList: Object.entries(actMap).sort((a, b) => b[1].riesgo - a[1].riesgo),
+                        maxActRisk: Math.max(1, ...Object.values(actMap).map(d => d.riesgo || 0)),
+                      }))
+                      .sort((a, b) => b.riesgo - a.riesgo)
+                    maxActRisk = Math.max(1, ...actList.map(c => c.riesgo || 0))
                   } else {
-                    // Vista célula → microceldas con último snapshot
-                    mcBreakdown = (celMicros[key] ?? [])
+                    // Vista ciudad o célula → microceldas con último snapshot
+                    const mcList = esCiudad ? (ciudadMicros[key] ?? []) : (celMicros[key] ?? [])
+                    mcBreakdown = mcList
                       .map(mc => {
                         const mcPts = baseSeries[mc] ?? []
                         const last  = mcPts[mcPts.length - 1]
@@ -635,10 +751,16 @@ export default function MapaCalorPrediccion({ filtros = {}, rows = [], onDetalle
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                           </svg>
                           <div className="min-w-0">
-                            <p className="font-medium text-slate-700 truncate" style={{ maxWidth: 92 }}>{key}</p>
-                            {!esCelula
-                              ? celula && <p className="text-[8px] text-slate-400 truncate">{celula}</p>
-                              : <p className="text-[8px] text-slate-400 truncate">{celMicros[key]?.length ?? 0} microceldas</p>
+                            <p className="font-medium text-slate-700 truncate" style={{ maxWidth: 92 }}>{esCiudad ? toTitleCase(key) : key}</p>
+                            {(!esCelula && !esCiudad)
+                              ? ciudadesMC.length > 0
+                                ? <CiudadesTag ciudades={ciudadesMC} />
+                                : celula && <p className="text-[8px] text-slate-400 truncate">{celula}</p>
+                              : esCiudad
+                                ? <p className="text-[8px] text-slate-400 truncate" title={(ciudadMicros[key] ?? []).join(', ')}>
+                                    {(ciudadMicros[key] ?? [])[0] ?? '—'}{(ciudadMicros[key] ?? []).length > 1 ? ` +${(ciudadMicros[key] ?? []).length - 1}` : ''}
+                                  </p>
+                                : <p className="text-[8px] text-slate-400 truncate">{celMicros[key]?.length ?? 0} microceldas</p>
                             }
                           </div>
                         </div>
@@ -656,7 +778,7 @@ export default function MapaCalorPrediccion({ filtros = {}, rows = [], onDetalle
                               key={t}
                               onClick={() => handleCeldaClick(key, t, p, celula)}
                               className={`text-center py-1 border-b border-slate-100 ${cN.bg} ${cN.text} ${
-                                p && !esCelula ? 'cursor-pointer hover:opacity-75 active:opacity-50' : 'cursor-default'
+                                p && !esCelula && !esCiudad ? 'cursor-pointer hover:opacity-75 active:opacity-50' : 'cursor-default'
                               }`}
                               style={{ WebkitTapHighlightColor: 'transparent' }}
                             >
@@ -671,7 +793,7 @@ export default function MapaCalorPrediccion({ filtros = {}, rows = [], onDetalle
                             key={t}
                             onClick={() => handleCeldaClick(key, t, p, celula)}
                             className={`text-center py-1 border-b border-slate-100 ${bg} ${text} ${
-                              p && !esCelula ? 'cursor-pointer hover:opacity-75 active:opacity-50' : 'cursor-default'
+                              p && !esCelula && !esCiudad ? 'cursor-pointer hover:opacity-75 active:opacity-50' : 'cursor-default'
                             }`}
                             style={{ WebkitTapHighlightColor: 'transparent' }}
                             title={p ? `${p.en_riesgo}/${p.total} en riesgo (${pct}%)` : 'Sin dato'}
@@ -706,74 +828,238 @@ export default function MapaCalorPrediccion({ filtros = {}, rows = [], onDetalle
                               boxSizing: 'border-box',
                             }}
                           >
-                            {!esCelula ? (
-                              /* Microcelda → actividades en vivo */
+                            {!esCelula && !esCiudad ? (
                               <>
                                 <p className="text-[9px] font-semibold text-slate-500 uppercase tracking-wide mb-2">
-                                  Tipos de trabajo en {key} · predicción 6pm en vivo ({rows.filter(r => r.microcelda === key).length} técnicos)
+                                  {key} · riesgo 6pm en vivo
                                 </p>
                                 {actList.length === 0 ? (
-                                  <p className="text-[10px] text-slate-400 italic">Sin técnicos con predicción en esta microcelda</p>
+                                  <p className="text-[9px] text-slate-400 text-center py-2">Sin técnicos con predicción en esta microcelda</p>
                                 ) : (
-                                  <div className="space-y-1.5">
-                                    {actList.map(([act, { total, riesgo }]) => {
-                                      const c      = cellColorN(riesgo, maxActRisk)
-                                      const barPct = (riesgo / maxActRisk) * 100
-                                      const pctR   = total > 0 ? Math.round((riesgo / total) * 100) : 0
+                                  <div className="space-y-1">
+                                    {actList.map(({ ciudad, total, riesgo: riesgoCiudad, actList: acts, maxActRisk: maxRisk }) => {
+                                      const cCiudad   = cellColorN(riesgoCiudad, maxActRisk)
+                                      const pctCiudad = total > 0 ? Math.round((riesgoCiudad / total) * 100) : 0
+                                      const ciudadKey = `${key}::${ciudad}`
+                                      const ciudadOpen = expandedCiudades.has(ciudadKey)
+
+                                      const abrirModalCiudad = (e) => {
+                                        e.stopPropagation()
+                                        const rowsFiltrados = rows.filter(r =>
+                                          r.microcelda === key &&
+                                          r.ciudad_nodo === ciudad &&
+                                          r.riesgo_6pm === 'En riesgo'
+                                        )
+                                        const celulaVal = (baseSeries[key]?.[0]?.celula) ?? ''
+                                        setCeldaSel({
+                                          mc: key,
+                                          titulo: `${key} · ${toTitleCase(ciudad)}`,
+                                          celula: celulaVal,
+                                          t: tiempos[tiempos.length - 1] ?? '',
+                                          punto: { pct_en_riesgo: pctCiudad, en_riesgo: riesgoCiudad, total },
+                                          rows: rowsFiltrados,
+                                        })
+                                      }
+
                                       return (
-                                        <div key={act} className="flex items-center gap-2">
-                                          <div className="w-32 shrink-0 truncate text-[10px] font-medium text-slate-700" title={act}>
-                                            {toTitleCase(act)}
+                                        <div key={ciudad} className="rounded-lg border border-slate-200 overflow-hidden bg-white">
+                                          <div
+                                            className="flex items-center gap-2 px-2 py-1.5 cursor-pointer select-none hover:bg-cyan-50/60 transition-colors"
+                                            onClick={() => toggleCiudad(key, ciudad)}
+                                            style={{ WebkitTapHighlightColor: 'transparent' }}
+                                          >
+                                            <svg
+                                              className={`w-3 h-3 text-slate-400 shrink-0 transition-transform duration-150 ${ciudadOpen ? 'rotate-90' : ''}`}
+                                              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                            >
+                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                            </svg>
+                                            <span className="flex-1 text-[10px] font-bold text-slate-700 truncate">{toTitleCase(ciudad)}</span>
+                                            <span className="text-[9px] text-slate-400 shrink-0">{acts.length} tipo{acts.length !== 1 ? 's' : ''}</span>
+                                            {riesgoCiudad > 0 ? (
+                                              <span
+                                                className={`ml-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${cCiudad.bg} ${cCiudad.text} cursor-pointer hover:opacity-75`}
+                                                onClick={abrirModalCiudad}
+                                                title="Ver técnicos en riesgo en esta ciudad"
+                                              >
+                                                {riesgoCiudad} riesgo · {pctCiudad}%
+                                              </span>
+                                            ) : (
+                                              <span className="ml-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 bg-emerald-100 text-emerald-700">
+                                                sin riesgo
+                                              </span>
+                                            )}
                                           </div>
-                                          <div className="flex-1 bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                                            <div className={`h-full rounded-full ${c.bg} transition-all`} style={{ width: `${Math.min(100, barPct)}%` }} />
-                                          </div>
-                                          <span className="text-[10px] font-semibold tabular-nums text-slate-600 shrink-0 w-12 text-right">
-                                            {riesgo}/{total}
-                                          </span>
-                                          <span className="text-[9px] font-medium text-red-500 shrink-0 w-8 text-right">
-                                            {pctR}%
-                                          </span>
+                                          {ciudadOpen && (
+                                            <div className="border-t border-slate-100 bg-slate-50/40 py-1.5 pl-6 pr-2 space-y-1.5 border-l-2 border-cyan-200">
+                                              {acts.map(([act, { total: totAct, riesgo: retAct }]) => {
+                                                const c      = cellColorN(retAct, maxRisk)
+                                                const barPct = maxRisk > 0 ? (retAct / maxRisk) * 100 : 0
+                                                const pct    = totAct > 0 ? Math.round((retAct / totAct) * 100) : 0
+                                                return (
+                                                  <div key={act} className="flex items-center gap-2">
+                                                    <div className="w-28 shrink-0 truncate text-[10px] text-slate-600" title={toTitleCase(act)}>
+                                                      {toTitleCase(act)}
+                                                    </div>
+                                                    <div className="flex-1 bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                                                      <div className={`h-full rounded-full ${c.bg} transition-all`} style={{ width: `${Math.min(100, barPct)}%` }} />
+                                                    </div>
+                                                    <span className="text-[10px] tabular-nums text-slate-500 shrink-0 w-20 text-right">
+                                                      {retAct}/{totAct} · {pct}%
+                                                    </span>
+                                                  </div>
+                                                )
+                                              })}
+                                            </div>
+                                          )}
                                         </div>
                                       )
                                     })}
                                   </div>
                                 )}
                               </>
+                            ) : esCiudad ? (
+                              /* Ciudad → tipos de trabajo en vivo */
+                              (() => {
+                                const tecsCiudad = rows.filter(r => r.ciudad_nodo === key)
+                                const actMap = {}
+                                for (const r of tecsCiudad) {
+                                  const act = r.actividad_actual || 'Sin actividad'
+                                  if (!actMap[act]) actMap[act] = { total: 0, riesgo: 0 }
+                                  actMap[act].total++
+                                  if (r.riesgo_6pm === 'En riesgo') actMap[act].riesgo++
+                                }
+                                const acts      = Object.entries(actMap).sort((a, b) => b[1].riesgo - a[1].riesgo)
+                                const maxRiesgo = Math.max(1, ...acts.map(([, d]) => d.riesgo))
+                                return (
+                                  <>
+                                    <p className="text-[9px] font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                                      {toTitleCase(key)} · riesgo 6pm en vivo
+                                    </p>
+                                    {acts.length === 0 ? (
+                                      <p className="text-[10px] text-slate-400 italic">Sin técnicos con predicción en esta ciudad</p>
+                                    ) : (
+                                      <div className="space-y-1">
+                                        {acts.map(([act, { total: totAct, riesgo: retAct }]) => {
+                                          const c      = cellColorN(retAct, maxRiesgo)
+                                          const barPct = maxRiesgo > 0 ? (retAct / maxRiesgo) * 100 : 0
+                                          const pct    = totAct > 0 ? Math.round((retAct / totAct) * 100) : 0
+                                          return (
+                                            <div key={act} className="rounded-lg border border-slate-200 bg-white px-3 py-2 hover:bg-cyan-50/40 transition-colors">
+                                              <div className="flex items-center gap-2 mb-1">
+                                                <span className="flex-1 truncate text-[10px] font-semibold text-slate-700" title={toTitleCase(act)}>
+                                                  {toTitleCase(act)}
+                                                </span>
+                                                <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${c.bg} ${c.text}`}>
+                                                  {retAct}/{totAct} · {pct}%
+                                                </span>
+                                              </div>
+                                              <div className="bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                                                <div className={`h-full rounded-full ${c.bg} transition-all`} style={{ width: `${Math.min(100, barPct)}%` }} />
+                                              </div>
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
+                                    )}
+                                  </>
+                                )
+                              })()
                             ) : (
-                              /* Célula → microceldas con último snapshot */
-                              <>
-                                <p className="text-[9px] font-semibold text-slate-500 uppercase tracking-wide mb-2">
-                                  Microceldas en {key} · último snapshot ({mcBreakdown.length})
-                                </p>
-                                {mcBreakdown.length === 0 ? (
-                                  <p className="text-[10px] text-slate-400 italic">Sin microceldas en esta célula</p>
-                                ) : (
-                                  <div className="space-y-1.5">
-                                    {mcBreakdown.map(({ mc, last }) => {
-                                      const val    = modo === 'N' ? (last?.en_riesgo ?? 0) : (last?.pct_en_riesgo ?? 0)
-                                      const c      = modo === 'N' ? cellColorN(val, maxActRisk) : cellColor(val)
-                                      const barPct = maxActRisk > 0 ? (val / maxActRisk) * 100 : 0
-                                      return (
-                                        <div key={mc} className="flex items-center gap-2">
-                                          <div className="w-32 shrink-0 truncate text-[10px] font-medium text-slate-700" title={mc}>
-                                            {mc}
-                                          </div>
-                                          <div className="flex-1 bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                                            <div className={`h-full rounded-full ${c.bg} transition-all`} style={{ width: `${Math.min(100, barPct)}%` }} />
-                                          </div>
-                                          <span className="text-[10px] font-semibold tabular-nums text-slate-600 shrink-0 w-16 text-right">
-                                            {modo === 'N'
-                                              ? `${last?.en_riesgo ?? 0}/${last?.total ?? 0}`
-                                              : `${last?.pct_en_riesgo != null ? Math.round(last.pct_en_riesgo) : '—'}%`
-                                            }
-                                          </span>
-                                        </div>
-                                      )
-                                    })}
-                                  </div>
-                                )}
-                              </>
+                              /* Célula → Microcelda → tipos de trabajo en vivo */
+                              (() => {
+                                const micros = (celMicros[key] ?? []).map(mc => {
+                                  const tecsMC = rows.filter(r => r.microcelda === mc)
+                                  const actMap = {}
+                                  let totalRiesgo = 0
+                                  for (const r of tecsMC) {
+                                    const act = r.actividad_actual || 'Sin actividad'
+                                    if (!actMap[act]) actMap[act] = { total: 0, riesgo: 0 }
+                                    actMap[act].total++
+                                    const esRiesgo = r.riesgo_6pm === 'En riesgo'
+                                    if (esRiesgo) { actMap[act].riesgo++; totalRiesgo++ }
+                                  }
+                                  return {
+                                    mc,
+                                    total: tecsMC.length,
+                                    riesgo: totalRiesgo,
+                                    acts: Object.entries(actMap).sort((a, b) => b[1].riesgo - a[1].riesgo),
+                                    maxRiesgo: Math.max(1, ...Object.values(actMap).map(d => d.riesgo)),
+                                  }
+                                }).sort((a, b) => b.riesgo - a.riesgo)
+                                const maxMCRiesgo = Math.max(1, ...micros.map(m => m.riesgo))
+                                return (
+                                  <>
+                                    <p className="text-[9px] font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                                      {key} · riesgo 6pm en vivo ({micros.length} microcelda{micros.length !== 1 ? 's' : ''})
+                                    </p>
+                                    {micros.length === 0 ? (
+                                      <p className="text-[10px] text-slate-400 italic">Sin microceldas activas en esta célula</p>
+                                    ) : (
+                                      <div className="space-y-1">
+                                        {micros.map(({ mc, total, riesgo: riesgoMC, acts, maxRiesgo: maxR }) => {
+                                          const cMC   = cellColorN(riesgoMC, maxMCRiesgo)
+                                          const pctMC = total > 0 ? Math.round((riesgoMC / total) * 100) : 0
+                                          const mcOpen = expandedMicrosInCel.has(mc)
+                                          return (
+                                            <div key={mc} className="rounded-lg border border-slate-200 overflow-hidden bg-white">
+                                              <div
+                                                className="flex items-center gap-2 px-2 py-1.5 cursor-pointer select-none hover:bg-cyan-50/60 transition-colors"
+                                                onClick={() => toggleMicroInCel(mc)}
+                                                style={{ WebkitTapHighlightColor: 'transparent' }}
+                                              >
+                                                <svg
+                                                  className={`w-3 h-3 text-slate-400 shrink-0 transition-transform duration-150 ${mcOpen ? 'rotate-90' : ''}`}
+                                                  fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                                >
+                                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                                </svg>
+                                                <span className="flex-1 text-[10px] font-bold text-slate-700 truncate">{mc}</span>
+                                                <span className="text-[9px] text-slate-400 shrink-0">{acts.length} tipo{acts.length !== 1 ? 's' : ''}</span>
+                                                {riesgoMC > 0 ? (
+                                                  <span className={`ml-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${cMC.bg} ${cMC.text}`}>
+                                                    {riesgoMC} riesgo · {pctMC}%
+                                                  </span>
+                                                ) : (
+                                                  <span className="ml-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 bg-emerald-100 text-emerald-700">
+                                                    sin riesgo
+                                                  </span>
+                                                )}
+                                              </div>
+                                              {mcOpen && (
+                                                <div className="border-t border-slate-100 bg-slate-50/40 py-1.5 px-2 space-y-1 border-l-2 border-cyan-200">
+                                                  {acts.length === 0 ? (
+                                                    <p className="text-[10px] text-slate-400 italic pl-4">Sin técnicos activos</p>
+                                                  ) : acts.map(([act, { total: totAct, riesgo: riesgoAct }]) => {
+                                                    const c      = cellColorN(riesgoAct, maxR)
+                                                    const barPct = maxR > 0 ? (riesgoAct / maxR) * 100 : 0
+                                                    const pct    = totAct > 0 ? Math.round((riesgoAct / totAct) * 100) : 0
+                                                    return (
+                                                      <div key={act} className="rounded-lg border border-slate-200 bg-white px-3 py-2 hover:bg-cyan-50/40 transition-colors">
+                                                        <div className="flex items-center gap-2 mb-1">
+                                                          <span className="flex-1 truncate text-[10px] font-semibold text-slate-700" title={toTitleCase(act)}>
+                                                            {toTitleCase(act)}
+                                                          </span>
+                                                          <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${c.bg} ${c.text}`}>
+                                                            {riesgoAct}/{totAct} · {pct}%
+                                                          </span>
+                                                        </div>
+                                                        <div className="bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                                                          <div className={`h-full rounded-full ${c.bg} transition-all`} style={{ width: `${Math.min(100, barPct)}%` }} />
+                                                        </div>
+                                                      </div>
+                                                    )
+                                                  })}
+                                                </div>
+                                              )}
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
+                                    )}
+                                  </>
+                                )
+                              })()
                             )}
                           </div>
                         </td>

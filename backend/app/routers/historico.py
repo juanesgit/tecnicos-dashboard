@@ -122,13 +122,17 @@ async def historico_microceldas(
     result = await db.execute(q)
     rows = result.all()
 
-    # Agrupar: { microcelda: [ {t, total, con_retraso, pct_retraso, ...}, ... ] }
+    # Agrupar: { microcelda: [ {t, total, con_retraso, pct_retraso, ciudad, ...}, ... ] }
     from collections import defaultdict
+    from app.services.zonas_service import get_microcelda_ciudad_map
+    mc_ciudad_map = get_microcelda_ciudad_map()
+
     series: dict = defaultdict(list)
     for captured_at, sm in rows:
         series[sm.microcelda].append({
             "t":               captured_at.strftime("%H:%M"),
             "celula":          sm.celula,
+            "ciudad":          mc_ciudad_map.get(sm.microcelda, 'Sin clasificar'),
             "total":           sm.total,
             "con_retraso":     sm.con_retraso,
             "con_parada":      sm.con_parada,
@@ -174,16 +178,20 @@ async def historico_prediccion(
     result = await db.execute(q)
     rows = result.all()
 
-    # Agrupar: { microcelda: [ {t, celula, total, en_riesgo, pct_en_riesgo}, ... ] }
+    # Agrupar: { microcelda: [ {t, celula, ciudad, total, en_riesgo, pct_en_riesgo}, ... ] }
     from collections import defaultdict
+    from app.services.zonas_service import get_microcelda_ciudad_map
+    mc_ciudad_map = get_microcelda_ciudad_map()
+
     series: dict = defaultdict(list)
     for captured_at, sm in rows:
         pct = round(sm.en_riesgo / sm.total * 100, 1) if sm.total else 0.0
         series[sm.microcelda].append({
-            "t":            captured_at.strftime("%H:%M"),
-            "celula":       sm.celula,
-            "total":        sm.total,
-            "en_riesgo":    sm.en_riesgo,
+            "t":             captured_at.strftime("%H:%M"),
+            "celula":        sm.celula,
+            "ciudad":        mc_ciudad_map.get(sm.microcelda, 'Sin clasificar'),
+            "total":         sm.total,
+            "en_riesgo":     sm.en_riesgo,
             "pct_en_riesgo": pct,
         })
 
@@ -195,6 +203,121 @@ async def historico_prediccion(
         "tiempos": all_times,
         "series":  dict(series),
     }
+
+
+@router.get("/ciudades")
+async def historico_ciudades(
+    horas: int = Query(default=8, ge=1, le=48),
+    celula: Optional[str] = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Serie temporal por ciudad para las últimas N horas."""
+    from app.models.snapshot import SnapshotCiudad
+    desde = _tz_now() - timedelta(hours=horas)
+
+    if current_user.role in ("lider_celula", "supervisor_microcelda") and current_user.celula:
+        celula = current_user.celula
+
+    q = (
+        select(SnapshotGlobal.captured_at, SnapshotCiudad)
+        .join(SnapshotCiudad, SnapshotCiudad.snapshot_id == SnapshotGlobal.id)
+        .where(SnapshotGlobal.captured_at >= desde)
+    )
+    if celula:
+        q = q.where(SnapshotCiudad.celula == celula)
+
+    q = q.order_by(SnapshotGlobal.captured_at)
+    result = await db.execute(q)
+    rows = result.all()
+
+    from collections import defaultdict
+    series: dict = defaultdict(list)
+    for captured_at, sc in rows:
+        series[sc.ciudad].append({
+            "t":               captured_at.strftime("%H:%M"),
+            "celula":          sc.celula,
+            "microcelda":      sc.microcelda,
+            "total":           sc.total,
+            "con_retraso":     sc.con_retraso,
+            "con_parada":      sc.con_parada,
+            "cumplimiento_pct": sc.cumplimiento_pct,
+            "pct_retraso":     round(sc.con_retraso / sc.total * 100, 1) if sc.total else 0,
+            "en_riesgo":       sc.en_riesgo,
+            "pct_en_riesgo":   round(sc.en_riesgo / sc.total * 100, 1) if sc.total else 0,
+        })
+
+    all_times = sorted({p["t"] for pts in series.values() for p in pts})
+
+    return {
+        "horas":   horas,
+        "celula":  celula,
+        "tiempos": all_times,
+        "series":  dict(series),
+    }
+
+
+@router.get("/avance/ciudades")
+async def historico_avance_ciudades(
+    horas: int = Query(default=8, ge=1, le=48),
+    celula: Optional[str] = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Tendencia histórica de avance OT por ciudad.
+
+    Usa los campos OT exactos almacenados en SnapshotCiudad — calculados
+    en _calcular_avance() agrupando cada OT por su ciudad real (vía zona_map).
+    Sin aproximaciones: cada OT se cuenta en su ciudad exacta.
+    """
+    from app.models.snapshot import SnapshotCiudad
+
+    desde = _tz_now() - timedelta(hours=horas)
+
+    if current_user.role in ("lider_celula", "supervisor_microcelda") and current_user.celula:
+        celula = current_user.celula
+
+    q_ct = (
+        select(SnapshotGlobal.captured_at, SnapshotCiudad)
+        .join(SnapshotCiudad, SnapshotCiudad.snapshot_id == SnapshotGlobal.id)
+        .where(SnapshotGlobal.captured_at >= desde)
+    )
+    if celula:
+        q_ct = q_ct.where(SnapshotCiudad.celula == celula)
+    q_ct = q_ct.order_by(SnapshotGlobal.captured_at)
+    ct_result = await db.execute(q_ct)
+    ct_rows = ct_result.all()
+
+    series: dict = {}
+    for captured_at, sc in ct_rows:
+        ciudad = sc.ciudad
+        if not ciudad or ciudad == "Sin clasificar":
+            continue
+        t = captured_at.strftime("%H:%M")
+        comp   = sc.ot_completado    or 0
+        nocomp = sc.ot_no_completado or 0
+        inic   = sc.ot_iniciado      or 0
+        pend   = sc.ot_pendiente     or 0
+        susp   = sc.ot_suspendido    or 0
+        total  = sc.ot_total         or 0
+        denom  = comp + nocomp + inic + pend + susp
+        pt = {
+            "t":             t,
+            "celula":        sc.celula,
+            "microcelda":    sc.microcelda,
+            "completado":    comp,
+            "no_completado": nocomp,
+            "iniciado":      inic,
+            "pendiente":     pend,
+            "suspendido":    susp,
+            "total":         total,
+            "pct_avance":    round((comp + nocomp) / denom * 100, 1) if denom > 0 else 0,
+        }
+        series.setdefault(ciudad, []).append(pt)
+
+    all_times = sorted({p["t"] for pts in series.values() for p in pts})
+
+    return {"horas": horas, "celula": celula, "tiempos": all_times, "series": series}
 
 
 @router.get("/avance")
@@ -224,14 +347,18 @@ async def historico_avance(
     result = await db.execute(q)
     rows = result.all()
 
-    # Agrupar: { microcelda: [ {t, celula, completado, no_completado, iniciado,
+    # Agrupar: { microcelda: [ {t, celula, ciudad, completado, no_completado, iniciado,
     #                           pendiente, suspendido, total, pct_avance}, ... ] }
     from collections import defaultdict
+    from app.services.zonas_service import get_microcelda_ciudad_map
+    mc_ciudad_map = get_microcelda_ciudad_map()
+
     series: dict = defaultdict(list)
     for captured_at, sm in rows:
         series[sm.microcelda].append({
             "t":             captured_at.strftime("%H:%M"),
             "celula":        sm.celula,
+            "ciudad":        mc_ciudad_map.get(sm.microcelda, 'Sin clasificar'),
             "completado":    sm.ot_completado,
             "no_completado": sm.ot_no_completado,
             "iniciado":      sm.ot_iniciado,

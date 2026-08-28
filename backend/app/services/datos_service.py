@@ -372,7 +372,7 @@ def ejecutar_consulta_v2() -> pd.DataFrame:
 
         df_actual['cumplimiento_time_slot_dia'] = float(cump_time_slot_dia)
 
-        # Enriquecer con célula y microcelda desde el mapa de zonas
+        # Enriquecer con célula, microcelda y ciudad desde el mapa de zonas
         zona_map = get_zona_map()
         if 'Nodo' in df_actual.columns:
             df_actual['celula']     = df_actual['Nodo'].apply(
@@ -381,11 +381,15 @@ def ejecutar_consulta_v2() -> pd.DataFrame:
             df_actual['microcelda'] = df_actual['Nodo'].apply(
                 lambda n: zona_map.get(str(n).strip(), {}).get('microcelda', 'Sin clasificar') if pd.notna(n) else 'Sin clasificar'
             )
+            df_actual['ciudad_nodo'] = df_actual['Nodo'].apply(
+                lambda n: zona_map.get(str(n).strip(), {}).get('ciudad', 'Sin clasificar') if pd.notna(n) else 'Sin clasificar'
+            )
         else:
-            df_actual['celula']     = 'Sin clasificar'
-            df_actual['microcelda'] = 'Sin clasificar'
+            df_actual['celula']      = 'Sin clasificar'
+            df_actual['microcelda']  = 'Sin clasificar'
+            df_actual['ciudad_nodo'] = 'Sin clasificar'
 
-        cols_extra = ['celula', 'microcelda']
+        cols_extra = ['celula', 'microcelda', 'ciudad_nodo']
         if 'Nodo' in df_actual.columns:
             cols_extra = ['Nodo'] + cols_extra
 

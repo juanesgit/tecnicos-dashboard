@@ -239,6 +239,10 @@ def _calcular_avance(celula: Optional[str] = None) -> dict:
             lambda n: zona_map.get(str(n).strip(), {}).get('microcelda', 'Sin clasificar')
             if pd.notna(n) else 'Sin clasificar'
         )
+        df['ciudad'] = df['Nodo'].apply(
+            lambda n: zona_map.get(str(n).strip(), {}).get('ciudad', 'Sin clasificar')
+            if pd.notna(n) else 'Sin clasificar'
+        )
         por_microcelda = []
         for (cel_mc, mc), grp_mc in df.groupby(['celula', 'microcelda']):
             cm = grp_mc['estado_norm'].value_counts().to_dict()
@@ -273,9 +277,14 @@ def _calcular_avance(celula: Optional[str] = None) -> dict:
                 })
             tipos_list.sort(key=lambda x: -x['total'])
 
+            # Ciudad desde zona_map (modo del grupo)
+            ciudad_vals = grp_mc['ciudad'].mode()
+            ciudad_mc   = str(ciudad_vals.iloc[0]) if not ciudad_vals.empty else 'Sin clasificar'
+
             por_microcelda.append({
                 'microcelda':    str(mc),
                 'celula':        str(cel_mc),
+                'ciudad':        ciudad_mc,
                 'total':         tot_mc,
                 'completado':    com_mc,
                 'no_completado': nc_mc,
@@ -285,6 +294,36 @@ def _calcular_avance(celula: Optional[str] = None) -> dict:
                 'cancelado':     cm.get('cancelado', 0),
                 'pct_avance':    round((com_mc + nc_mc) / ejec_mc * 100, 1) if ejec_mc > 0 else 0.0,
                 'por_tipo':      tipos_list,
+            })
+
+        # ── 3c. Breakdown por ciudad ─────────────────────────────────────────
+        por_ciudad = []
+        for ciudad_val, grp_c in df.groupby('ciudad'):
+            if not ciudad_val or ciudad_val == 'Sin clasificar':
+                continue
+            cc      = grp_c['estado_norm'].value_counts().to_dict()
+            tot_c   = len(grp_c)
+            com_c   = cc.get('completado', 0)
+            nc_c    = cc.get('no_completado', 0)
+            ini_c   = cc.get('iniciado', 0)
+            pen_c   = cc.get('pendiente', 0)
+            sus_c   = cc.get('suspendido', 0)
+            ejec_c  = com_c + nc_c + ini_c + pen_c + sus_c
+            mc_vals  = grp_c['microcelda'].mode()
+            mc_c     = str(mc_vals.iloc[0]) if not mc_vals.empty else 'Sin clasificar'
+            cel_vals = grp_c['celula'].mode()
+            cel_c    = str(cel_vals.iloc[0]) if not cel_vals.empty else 'Sin clasificar'
+            por_ciudad.append({
+                'ciudad':        str(ciudad_val),
+                'celula':        cel_c,
+                'microcelda':    mc_c,
+                'completado':    com_c,
+                'no_completado': nc_c,
+                'iniciado':      ini_c,
+                'pendiente':     pen_c,
+                'suspendido':    sus_c,
+                'total':         tot_c,
+                'pct_avance':    round((com_c + nc_c) / ejec_c * 100, 1) if ejec_c > 0 else 0.0,
             })
 
         # ── 4. Derrotero por tipo de actividad (sobre df ANTES del filtro) ────
@@ -347,6 +386,7 @@ def _calcular_avance(celula: Optional[str] = None) -> dict:
             'curva_s':        curva_s,
             'por_celula':     por_celula,
             'por_microcelda': por_microcelda,
+            'por_ciudad':     por_ciudad,
             'por_tipo':       por_tipo,
         }
         _avance_cache[cache_key] = {"data": result, "ts": _time.monotonic()}
@@ -363,7 +403,7 @@ def _calcular_avance(celula: Optional[str] = None) -> dict:
 
 
 def _empty():
-    return {'resumen': {}, 'curva_s': [], 'por_celula': []}
+    return {'resumen': {}, 'curva_s': [], 'por_celula': [], 'por_microcelda': [], 'por_ciudad': []}
 
 
 @router.get("/avance-ot")
@@ -438,6 +478,10 @@ def _calcular_mapa_calor_avance(celula: Optional[str] = None) -> dict:
         )
         df["celula"] = df["Nodo"].apply(
             lambda n: zona_map.get(str(n).strip(), {}).get("celula", "Sin clasificar")
+            if pd.notna(n) else "Sin clasificar"
+        )
+        df["ciudad"] = df["Nodo"].apply(
+            lambda n: zona_map.get(str(n).strip(), {}).get("ciudad", "Sin clasificar")
             if pd.notna(n) else "Sin clasificar"
         )
 

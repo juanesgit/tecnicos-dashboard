@@ -33,8 +33,19 @@ const ALL_TABS = [
     ),
   },
   {
+    id: 'productividad',
+    label: 'Productividad',
+    adminOnly: false,
+    icon: (active) => (
+      <svg className="w-5 h-5" fill={active ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={active ? 0 : 2}
+          d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+      </svg>
+    ),
+  },
+  {
     id: 'snapshots',
-    label: 'Snapshots',
+    label: 'Admin',
     adminOnly: true,
     icon: (active) => (
       <svg className="w-5 h-5" fill={active ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
@@ -46,10 +57,11 @@ const ALL_TABS = [
 ]
 
 const ACTIVE_COLORS = {
-  encurso:    { text: '#dc2626', bg: '#fef2f2' },
-  mapas:      { text: '#0891b2', bg: '#ecfeff' },
-  tendencias: { text: '#7c3aed', bg: '#f5f3ff' },
-  snapshots:  { text: '#0f766e', bg: '#f0fdfa' },
+  encurso:       { text: '#dc2626', bg: '#fef2f2' },
+  mapas:         { text: '#0891b2', bg: '#ecfeff' },
+  tendencias:    { text: '#7c3aed', bg: '#f5f3ff' },
+  productividad: { text: '#4f46e5', bg: '#eef2ff' },
+  snapshots:     { text: '#0f766e', bg: '#f0fdfa' },
 }
 
 export default function BottomNav({ activeTab, onTabChange, counts = {}, isAdmin = false }) {

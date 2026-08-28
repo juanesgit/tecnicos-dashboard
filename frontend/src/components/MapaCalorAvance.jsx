@@ -102,20 +102,39 @@ function LeyendaProy() {
 /* ══════════════════════════════════════════════════════════════
    Componente principal
 ══════════════════════════════════════════════════════════════ */
-export default function MapaCalorAvance({ celulaFiltro = '', microceldaFiltro = '' }) {
+export default function MapaCalorAvance({ celulaFiltro = '', microceldaFiltro = '', rows = [] }) {
   const [horas,        setHoras]        = useState(4)
   const [modo,         setModo]         = useState('%')           // '%' | 'Proy.'
-  const [granularidad, setGranularidad] = useState('microcelda')  // 'microcelda' | 'celula'
+  const [granularidad, setGranularidad] = useState('celula')       // 'celula' | 'microcelda' | 'ciudad'
   const [data,         setData]         = useState(null)
   const [loading,      setLoading]      = useState(false)
   const [error,        setError]        = useState(null)
-  const [expandidos,   setExpandidos]   = useState(new Set())
-  const [liveMcMap,    setLiveMcMap]    = useState({})   // mc name → { por_tipo }
+  const [expandidos,          setExpandidos]          = useState(new Set())
+  const [expandedCiudades,    setExpandedCiudades]    = useState(new Set())
+  const [expandedMicrosInCel, setExpandedMicrosInCel] = useState(new Set())
+  const [liveMcMap,           setLiveMcMap]           = useState({})   // mc name → { por_tipo, ciudad, ... }
+  const [ciudadData,          setCiudadData]          = useState(null)
   const scrollRef = useRef(null)
 
   const handleGranularidad = (g) => {
     setGranularidad(g)
     setExpandidos(new Set())
+    setExpandedCiudades(new Set())
+  }
+
+  const toggleCiudad = (ciudadKey) => {
+    setExpandedCiudades(prev => {
+      const next = new Set(prev)
+      next.has(ciudadKey) ? next.delete(ciudadKey) : next.add(ciudadKey)
+      return next
+    })
+  }
+  const toggleMicroInCel = (mc) => {
+    setExpandedMicrosInCel(prev => {
+      const next = new Set(prev)
+      next.has(mc) ? next.delete(mc) : next.add(mc)
+      return next
+    })
   }
 
   const toggleExpandido = (key) => {
@@ -142,11 +161,13 @@ export default function MapaCalorAvance({ celulaFiltro = '', microceldaFiltro = 
       const params = new URLSearchParams({ horas })
       if (celulaFiltro) params.set('celula', celulaFiltro)
 
-      // Fetch histórico (crítico) + datos vivos (no crítico) en paralelo
-      const liveUrl = `/avance-ot${celulaFiltro ? `?celula=${encodeURIComponent(celulaFiltro)}` : ''}`
-      const [histResult, liveResult] = await Promise.allSettled([
+      // Fetch histórico (crítico) + datos vivos + avance por ciudad — en paralelo
+      const liveUrl    = `/avance-ot${celulaFiltro ? `?celula=${encodeURIComponent(celulaFiltro)}` : ''}`
+      const ciudadUrl  = `/historico/avance/ciudades?${params}`
+      const [histResult, liveResult, ciudadResult] = await Promise.allSettled([
         api.get(`/historico/avance?${params}`),
         api.get(liveUrl),
+        api.get(ciudadUrl),
       ])
 
       if (histResult.status === 'fulfilled') {
@@ -162,7 +183,11 @@ export default function MapaCalorAvance({ celulaFiltro = '', microceldaFiltro = 
         }
         setLiveMcMap(mcMap)
       }
-      // Si live falla, liveMcMap queda vacío — el breakdown de tipos simplemente no aparece
+
+      if (ciudadResult.status === 'fulfilled') {
+        setCiudadData(ciudadResult.value.data)
+      }
+      // Si live/ciudad fallan, sus mapas quedan vacíos — la vista degrada graciosamente
     } catch (e) {
       const msg = e.response?.data?.detail || 'Error al cargar avance OT'
       setError(msg)
@@ -190,6 +215,25 @@ export default function MapaCalorAvance({ celulaFiltro = '', microceldaFiltro = 
   }
 
   const tiempos = data?.tiempos ?? []
+
+  // ── Ciudad: series desde endpoint dedicado (igual que los otros heatmaps) ──
+  const ciudadSeries = ciudadData?.series ?? {}
+  // ciudadMicros: ciudad → [microceldas]
+  // Fuente 1: rows en vivo (más preciso); Fuente 2: campo microcelda de la serie histórica (fallback)
+  const ciudadMicros = {}
+  for (const r of rows) {
+    if (!r.microcelda || !r.ciudad_nodo) continue
+    if (!ciudadMicros[r.ciudad_nodo]) ciudadMicros[r.ciudad_nodo] = []
+    if (!ciudadMicros[r.ciudad_nodo].includes(r.microcelda)) ciudadMicros[r.ciudad_nodo].push(r.microcelda)
+  }
+  // Fallback: ciudades con serie histórica pero sin técnicos vivos ahora
+  for (const [ciudad, pts] of Object.entries(ciudadSeries)) {
+    if (!ciudadMicros[ciudad]) {
+      const mc = pts[0]?.microcelda
+      if (mc) ciudadMicros[ciudad] = [mc]
+    }
+  }
+  // ────────────────────────────────────────────────────────────
 
   // ── Agregar por célula ──────────────────────────────────────
   const celulaSeries  = {}
@@ -223,8 +267,9 @@ export default function MapaCalorAvance({ celulaFiltro = '', microceldaFiltro = 
   }
   // ────────────────────────────────────────────────────────────
 
-  const esCelula    = granularidad === 'celula'
-  const activeSeries = esCelula ? celulaSeries : baseSeries
+  const esCelula  = granularidad === 'celula'
+  const esCiudad  = granularidad === 'ciudad'
+  const activeSeries = esCelula ? celulaSeries : esCiudad ? ciudadSeries : baseSeries
 
   /* Calcula la proyección para un punto de datos dado */
   function getProy(p) {
@@ -244,7 +289,7 @@ export default function MapaCalorAvance({ celulaFiltro = '', microceldaFiltro = 
       } else {
         lastPct = last?.pct_avance ?? 0
       }
-      const celula = !esCelula ? (pts[0]?.celula ?? '') : ''
+      const celula = !esCelula && !esCiudad ? (pts[0]?.celula ?? '') : ''
       return { key, celula, lastPct }
     })
     .sort((a, b) => a.lastPct - b.lastPct)  // menor avance = más urgente, va arriba
@@ -258,26 +303,34 @@ export default function MapaCalorAvance({ celulaFiltro = '', microceldaFiltro = 
 
   const hasDatos = displayItems.length > 0 && tiempos.length > 0
 
+  // Etiqueta de granularidad para textos
+  const granLabel = esCelula ? 'célula' : esCiudad ? 'ciudad' : 'microcelda'
+  const granLabelPl = esCelula ? 'células' : esCiudad ? 'ciudades' : 'microceldas'
+
   return (
     <div className="space-y-3">
       {/* Header */}
       <div className="flex flex-col gap-2">
         <div>
           <p className="text-xs font-semibold text-slate-600">
-            Avance OT — {esCelula ? 'célula' : 'microcelda'} × tiempo
+            Avance OT — {granLabel} × tiempo
             {celulaFiltro ? ` · ${celulaFiltro}` : ''}
           </p>
           <p className="text-[10px] text-slate-400">
             {hasDatos
-              ? `${displayItems.length} ${esCelula ? 'célula' : 'microcelda'}${displayItems.length !== 1 ? 's' : ''} · ${tiempos.length} snapshots · granularidad 5 min`
+              ? `${displayItems.length} ${displayItems.length !== 1 ? granLabelPl : granLabel} · ${tiempos.length} snapshots · granularidad 5 min`
               : 'Sin datos'}
           </p>
         </div>
         {/* Controles: 1 fila compacta */}
         <div className="flex items-center gap-1.5">
-          {/* Micro / Célula */}
+          {/* Micro / Ciudad / Célula */}
           <div className="flex rounded-lg overflow-hidden border border-slate-200">
-            {[{ val: 'microcelda', label: 'Micro' }, { val: 'celula', label: 'Célula' }].map(o => (
+            {[
+              { val: 'celula',     label: 'Célula' },
+              { val: 'microcelda', label: 'Micro'  },
+              { val: 'ciudad',     label: 'Ciudad' },
+            ].map(o => (
               <button key={o.val} onClick={() => handleGranularidad(o.val)}
                 style={{ WebkitTapHighlightColor: 'transparent' }}
                 className={`px-2.5 py-1.5 text-xs font-semibold transition-colors ${
@@ -347,7 +400,7 @@ export default function MapaCalorAvance({ celulaFiltro = '', microceldaFiltro = 
               <thead>
                 <tr className="bg-slate-50">
                   <th className="sticky left-0 bg-slate-50 z-10 px-2 py-1.5 text-left font-semibold text-slate-500 border-b border-r border-slate-100 w-28 min-w-28">
-                    {esCelula ? 'Célula' : 'Microcelda'}
+                    {esCelula ? 'Célula' : esCiudad ? 'Ciudad' : 'Microcelda'}
                   </th>
                   {tiempos.map(t => (
                     <th key={t} className="px-1 py-1.5 text-center font-medium text-slate-400 border-b border-slate-100"
@@ -373,12 +426,13 @@ export default function MapaCalorAvance({ celulaFiltro = '', microceldaFiltro = 
                   const lastProy     = getProy(last)
                   const ultCellProy  = cellColor(lastProy)
 
-                  // ── Breakdown para sub-fila expandida ──
+                  // ── Breakdown para sub-fila expandida (célula o ciudad) ──
                   let mcBreakdown = []
-                  if (esCelula) {
-                    mcBreakdown = (celMicros[key] ?? [])
+                  const subMicros = esCelula ? (celMicros[key] ?? []) : esCiudad ? (ciudadMicros[key] ?? []) : []
+                  if (esCelula || esCiudad) {
+                    mcBreakdown = subMicros
                       .map(mc => {
-                        const mcPts = baseSeries[mc] ?? []
+                        const mcPts  = baseSeries[mc] ?? []
                         const mcLast = mcPts[mcPts.length - 1]
                         return { mc, last: mcLast }
                       })
@@ -396,9 +450,7 @@ export default function MapaCalorAvance({ celulaFiltro = '', microceldaFiltro = 
                   const tdBg      = idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'
 
                   // Proyección del último punto para fila expandida microcelda
-                  const proyFinal = lastPunto
-                    ? getProy(lastPunto)
-                    : null
+                  const proyFinal = lastPunto ? getProy(lastPunto) : null
                   const cerradasUlt = (lastPunto?.completado ?? 0) + (lastPunto?.no_completado ?? 0)
                   const totalEjecUlt = cerradasUlt
                     + (lastPunto?.iniciado   ?? 0)
@@ -421,10 +473,14 @@ export default function MapaCalorAvance({ celulaFiltro = '', microceldaFiltro = 
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                           </svg>
                           <div className="min-w-0">
-                            <p className="font-medium text-slate-700 truncate" style={{ maxWidth: 92 }}>{key}</p>
-                            {!esCelula
+                            <p className="font-medium text-slate-700 truncate" style={{ maxWidth: 92 }}>{esCiudad ? toTitleCase(key) : key}</p>
+                            {!esCelula && !esCiudad
                               ? celula && <p className="text-[8px] text-slate-400 truncate">{celula}</p>
-                              : <p className="text-[8px] text-slate-400 truncate">{celMicros[key]?.length ?? 0} microceldas</p>
+                              : esCiudad
+                                ? <p className="text-[8px] text-slate-400 truncate" title={subMicros.join(', ')}>
+                                    {subMicros[0] ?? '—'}{subMicros.length > 1 ? ` +${subMicros.length - 1}` : ''}
+                                  </p>
+                                : <p className="text-[8px] text-slate-400 truncate">{subMicros.length} microceldas</p>
                             }
                           </div>
                         </div>
@@ -490,115 +546,314 @@ export default function MapaCalorAvance({ celulaFiltro = '', microceldaFiltro = 
                               boxSizing: 'border-box',
                             }}
                           >
-                            {!esCelula ? (
+                            {!esCelula && !esCiudad ? (
                               /* Microcelda → desglose de estados OT en último snapshot */
                               <>
                                 <p className="text-[9px] font-semibold text-slate-500 uppercase tracking-wide mb-1">
                                   Desglose OT en {key}
                                 </p>
 
-                                {/* Bloque predictivo si modo Proy. */}
-                                {modo === 'Proy.' && lastPunto && (
+                                {/* Bloque informativo: avance actual + proyección (siempre visible) */}
+                                {lastPunto && totalEjecUlt > 0 && (
                                   <div className={`mb-2 px-2 py-1 rounded-lg text-[10px] font-medium ${
                                     proyFinal === null
                                       ? 'bg-slate-100 text-slate-400'
                                       : cellColor(proyFinal).bg + ' ' + cellColor(proyFinal).text
                                   }`}>
                                     {proyFinal === null
-                                      ? 'Sin proyección disponible (antes de las 07:00 o sin OTs)'
+                                      ? `${cerradasUlt} cerradas de ${totalEjecUlt} ejecutables · sin proyección`
                                       : `Proyecta cerrar ${Math.round(proyFinal)}% a las 18:00 al ritmo actual · ${cerradasUlt} cerradas de ${totalEjecUlt} ejecutables`
                                     }
                                   </div>
                                 )}
 
-                                {/* ── Por tipo de trabajo (datos en vivo) ── */}
+                                {/* ── Ciudad → OT tipos de trabajo (jerárquico en vivo) ── */}
                                 {(() => {
                                   const liveItem = liveMcMap[key]
-                                  const tipos = liveItem?.por_tipo ?? []
-                                  if (!tipos.length) return null
+                                  const tipos    = liveItem?.por_tipo ?? []
+                                  const tiposMap = {}
+                                  for (const t of tipos) tiposMap[t.tipo] = t
+
+                                  const esProy = modo === 'Proy.'
+                                  const _now   = new Date()
+                                  const tNow   = `${String(_now.getHours()).padStart(2,'0')}:${String(_now.getMinutes()).padStart(2,'0')}`
+
+                                  // Agrupar técnicos por ciudad → obtener tipos OT activos en cada ciudad
+                                  const tecsMC    = rows.filter(r => r.microcelda === key)
+                                  const ciudadSet = {}   // ciudad → Set<tipo> (solo tipos con datos en liveMcMap)
+                                  for (const r of tecsMC) {
+                                    const ciudad = r.ciudad_nodo || 'Sin ciudad'
+                                    const tipo   = r.actividad_actual
+                                    if (!tipo || !tiposMap[tipo]) continue  // omitir si no hay OT data
+                                    if (!ciudadSet[ciudad]) ciudadSet[ciudad] = new Set()
+                                    ciudadSet[ciudad].add(tipo)
+                                  }
+
+                                  const hayCiudades = Object.keys(ciudadSet).length > 0
+
+                                  // ── Render helper de tipos OT ──────────────────────────
+                                  const renderTipos = (tiposList) => tiposList.map((tipo) => {
+                                    const { total: tTot, completado: tCom, no_completado: tNc,
+                                            iniciado: tIni, pendiente: tPen, suspendido: tSus,
+                                            pct_avance: tPct } = tiposMap[tipo]
+                                    const tipoLabel  = toTitleCase(tipo)
+                                    const proyTipo   = esProy
+                                      ? proyectarCierre(tNow, tCom + tNc, tIni + tPen + tSus)
+                                      : null
+                                    const displayPct = esProy ? (proyTipo ?? null) : tPct
+                                    const { bg: cBg } = cellColor(displayPct)
+                                    return (
+                                      <div key={tipo} className="flex items-center gap-2">
+                                        <div className="w-28 shrink-0 truncate text-[10px] text-slate-600" title={tipoLabel}>
+                                          {tipoLabel}
+                                        </div>
+                                        <div className="flex-1 bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                                          <div className={`h-full rounded-full ${cBg} transition-all`}
+                                            style={{ width: `${Math.min(100, displayPct ?? 0)}%` }} />
+                                        </div>
+                                        <span className="text-[10px] tabular-nums text-slate-500 shrink-0 w-24 text-right">
+                                          {esProy
+                                            ? (proyTipo != null
+                                                ? `${tCom + tNc}/${tTot} → ${Math.round(proyTipo)}%`
+                                                : `${tCom + tNc}/${tTot} · —`)
+                                            : `${tCom + tNc}/${tTot} · ${Math.round(tPct ?? 0)}%`
+                                          }
+                                        </span>
+                                      </div>
+                                    )
+                                  })
+
+                                  if (!hayCiudades) {
+                                    // Fallback plano: sin datos de posición por ciudad
+                                    if (!tipos.length) return null
+                                    return (
+                                      <div className="mt-2">
+                                        <p className="text-[9px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+                                          OTs en vivo · {liveItem?.total ?? 0} OTs
+                                        </p>
+                                        <div className="space-y-1.5">
+                                          {renderTipos(tipos.map(t => t.tipo).sort((a, b) => (tiposMap[a]?.pct_avance ?? 0) - (tiposMap[b]?.pct_avance ?? 0)))}
+                                        </div>
+                                      </div>
+                                    )
+                                  }
+
+                                  // ── Jerarquía Ciudad → OT tipos en vivo ──
+                                  const ciudadesOrdenadas = Object.entries(ciudadSet)
+                                    .map(([ciudad, tiposSet]) => {
+                                      const tiposList = [...tiposSet].sort((a, b) => (tiposMap[a]?.pct_avance ?? 0) - (tiposMap[b]?.pct_avance ?? 0))
+                                      // Avance promedio de los tipos activos en esta ciudad
+                                      const vals = tiposList.map(t => {
+                                        const d = tiposMap[t]
+                                        if (esProy) {
+                                          const pr = proyectarCierre(tNow, d.completado + d.no_completado, d.iniciado + d.pendiente + d.suspendido)
+                                          return pr ?? d.pct_avance ?? 0
+                                        }
+                                        return d.pct_avance ?? 0
+                                      })
+                                      const avgPct = vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : null
+                                      return { ciudad, tiposList, avgPct }
+                                    })
+                                    .sort((a, b) => (a.avgPct ?? 100) - (b.avgPct ?? 100))  // más urgente primero
+
                                   return (
-                                    <div className="mt-3">
+                                    <div className="mt-2">
                                       <p className="text-[9px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
-                                        Por tipo de trabajo · datos en vivo ({liveItem.total} OTs)
+                                        OTs en vivo por ciudad · {liveItem?.total ?? 0} OTs
                                       </p>
-                                      <div className="space-y-1.5">
-                                        {(() => {
-                                          // Hora actual para proyección por tipo
-                                          const _now = new Date()
-                                          const tNow = `${String(_now.getHours()).padStart(2,'0')}:${String(_now.getMinutes()).padStart(2,'0')}`
-                                          return tipos.map(({ tipo, total: tTot, completado: tCom, no_completado: tNc, iniciado: tIni, pendiente: tPen, suspendido: tSus, pct_avance: tPct }) => {
-                                            const tipoLabel  = toTitleCase(tipo)
-                                            const esProy     = modo === 'Proy.'
-                                            const proyTipo   = esProy
-                                              ? proyectarCierre(tNow, tCom + tNc, tIni + tPen + tSus)
-                                              : null
-                                            const displayPct = esProy ? (proyTipo ?? null) : tPct
-                                            const { bg: cBg } = cellColor(displayPct)
-                                            return (
-                                              <div key={tipo} className="flex items-center gap-2">
-                                                <div className="w-40 shrink-0 truncate text-[10px] font-medium text-slate-700" title={tipoLabel}>
-                                                  {tipoLabel}
-                                                </div>
-                                                <div className="flex-1 bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                                                  <div className={`h-full rounded-full ${cBg} transition-all`}
-                                                    style={{ width: `${Math.min(100, displayPct ?? 0)}%` }} />
-                                                </div>
-                                                <span className="text-[10px] tabular-nums text-slate-500 shrink-0 w-24 text-right">
-                                                  {esProy
-                                                    ? (proyTipo != null ? `${tCom + tNc}/${tTot} → ${Math.round(proyTipo)}%` : `${tCom + tNc}/${tTot} · —`)
-                                                    : `${tCom + tNc}/${tTot} · ${Math.round(tPct)}%`
-                                                  }
+                                      <div className="space-y-1">
+                                        {ciudadesOrdenadas.map(({ ciudad, tiposList, avgPct }) => {
+                                          const ciudadKey    = `${key}::${ciudad}`
+                                          const isCiudadOpen = expandedCiudades.has(ciudadKey)
+                                          const cCiudad      = cellColor(avgPct)
+
+                                          return (
+                                            <div key={ciudad} className="rounded-lg border border-slate-200 overflow-hidden bg-white">
+                                              <button
+                                                onClick={() => toggleCiudad(ciudadKey)}
+                                                className="w-full flex items-center gap-2 px-2 py-1.5 text-left hover:bg-cyan-50/60 transition-colors"
+                                                style={{ WebkitTapHighlightColor: 'transparent' }}
+                                              >
+                                                <svg
+                                                  className={`w-3 h-3 text-slate-400 shrink-0 transition-transform duration-150 ${isCiudadOpen ? 'rotate-90' : ''}`}
+                                                  fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                                >
+                                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                                </svg>
+                                                <span className="flex-1 text-[10px] font-bold text-slate-700 truncate">
+                                                  {toTitleCase(ciudad)}
                                                 </span>
-                                              </div>
-                                            )
-                                          })
-                                        })()}
+                                                <span className="text-[9px] text-slate-400 shrink-0">
+                                                  {tiposList.length} tipo{tiposList.length !== 1 ? 's' : ''}
+                                                </span>
+                                                {avgPct !== null && (
+                                                  <span className={`ml-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${cCiudad.bg} ${cCiudad.text}`}>
+                                                    {Math.round(avgPct)}%
+                                                  </span>
+                                                )}
+                                              </button>
+
+                                              {isCiudadOpen && (
+                                                <div className="border-t border-slate-100 bg-slate-50/40 py-1.5 pl-6 pr-2 space-y-1.5 border-l-2 border-cyan-200">
+                                                  {renderTipos(tiposList)}
+                                                </div>
+                                              )}
+                                            </div>
+                                          )
+                                        })}
                                       </div>
                                     </div>
                                   )
                                 })()}
                               </>
+                            ) : esCiudad ? (
+                              /* Ciudad → tipos de trabajo en vivo (avance) */
+                              (() => {
+                                const esProy = modo === 'Proy.'
+                                const _now   = new Date()
+                                const tNow   = `${String(_now.getHours()).padStart(2,'0')}:${String(_now.getMinutes()).padStart(2,'0')}`
+                                const mcList = ciudadMicros[key] ?? []
+                                const tipoAgg = {}
+                                for (const mc of mcList) {
+                                  for (const t of (liveMcMap[mc]?.por_tipo ?? [])) {
+                                    if (!tipoAgg[t.tipo]) tipoAgg[t.tipo] = { completado: 0, no_completado: 0, iniciado: 0, pendiente: 0, suspendido: 0, total: 0 }
+                                    tipoAgg[t.tipo].completado    += t.completado    ?? 0
+                                    tipoAgg[t.tipo].no_completado += t.no_completado ?? 0
+                                    tipoAgg[t.tipo].iniciado      += t.iniciado      ?? 0
+                                    tipoAgg[t.tipo].pendiente     += t.pendiente     ?? 0
+                                    tipoAgg[t.tipo].suspendido    += t.suspendido    ?? 0
+                                    tipoAgg[t.tipo].total         += t.total         ?? 0
+                                  }
+                                }
+                                const acts = Object.entries(tipoAgg).map(([tipo, d]) => {
+                                  const cerradas = d.completado + d.no_completado
+                                  const pctAv    = d.total > 0 ? (cerradas / d.total) * 100 : 0
+                                  const proyVal  = esProy ? proyectarCierre(tNow, cerradas, d.iniciado + d.pendiente + d.suspendido) : null
+                                  const displayPct = esProy ? (proyVal ?? pctAv) : pctAv
+                                  return { tipo, ...d, cerradas, pctAv, proyVal, displayPct }
+                                }).sort((a, b) => a.displayPct - b.displayPct)
+                                return (
+                                  <>
+                                    <p className="text-[9px] font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                                      {toTitleCase(key)} · avance OT en vivo
+                                    </p>
+                                    {acts.length === 0 ? (
+                                      <p className="text-[10px] text-slate-400 italic">Sin OTs activas en esta ciudad</p>
+                                    ) : (
+                                      <div className="space-y-1">
+                                        {acts.map(({ tipo, cerradas, total, pctAv, proyVal, displayPct }) => {
+                                          const c = cellColor(displayPct)
+                                          return (
+                                            <div key={tipo} className="rounded-lg border border-slate-200 bg-white px-3 py-2 hover:bg-cyan-50/40 transition-colors">
+                                              <div className="flex items-center gap-2 mb-1">
+                                                <span className="flex-1 truncate text-[10px] font-semibold text-slate-700" title={toTitleCase(tipo)}>
+                                                  {toTitleCase(tipo)}
+                                                </span>
+                                                <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${c.bg} ${c.text}`}>
+                                                  {esProy
+                                                    ? (proyVal != null ? `${cerradas}/${total} → ${Math.round(proyVal)}%` : `${cerradas}/${total} · —`)
+                                                    : `${cerradas}/${total} · ${Math.round(pctAv)}%`
+                                                  }
+                                                </span>
+                                              </div>
+                                              <div className="bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                                                <div className={`h-full rounded-full ${c.bg} transition-all`} style={{ width: `${Math.min(100, displayPct)}%` }} />
+                                              </div>
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
+                                    )}
+                                  </>
+                                )
+                              })()
                             ) : (
-                              /* Célula → microceldas con último snapshot */
-                              <>
-                                <p className="text-[9px] font-semibold text-slate-500 uppercase tracking-wide mb-2">
-                                  Microceldas en {key} · último snapshot ({mcBreakdown.length})
-                                </p>
-                                {mcBreakdown.length === 0 ? (
-                                  <p className="text-[10px] text-slate-400 italic">Sin microceldas en esta célula</p>
-                                ) : (
-                                  <div className="space-y-1.5">
-                                    {mcBreakdown.map(({ mc, last: mcLast }) => {
-                                      let displayVal, barPct, c
-                                      if (modo === 'Proy.') {
-                                        const proy = getProy(mcLast)
-                                        displayVal = proy != null ? `${Math.round(proy)}%` : '—'
-                                        barPct     = proy ?? 0
-                                        c          = cellColor(proy)
-                                      } else {
-                                        const pctAv = mcLast?.pct_avance ?? 0
-                                        displayVal  = `${Math.round(pctAv)}%`
-                                        barPct      = pctAv
-                                        c           = cellColor(pctAv)
-                                      }
-                                      return (
-                                        <div key={mc} className="flex items-center gap-2">
-                                          <div className="w-32 shrink-0 truncate text-[10px] font-medium text-slate-700" title={mc}>
-                                            {mc}
-                                          </div>
-                                          <div className="flex-1 bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                                            <div className={`h-full rounded-full ${c.bg} transition-all`}
-                                              style={{ width: `${Math.min(100, barPct)}%` }} />
-                                          </div>
-                                          <span className="text-[10px] font-semibold tabular-nums text-slate-600 shrink-0 w-16 text-right">
-                                            {displayVal}
-                                          </span>
-                                        </div>
-                                      )
-                                    })}
-                                  </div>
-                                )}
-                              </>
+                              /* Célula → Microcelda → tipos de trabajo en vivo (avance) */
+                              (() => {
+                                const esProy = modo === 'Proy.'
+                                const _now   = new Date()
+                                const tNow   = `${String(_now.getHours()).padStart(2,'0')}:${String(_now.getMinutes()).padStart(2,'0')}`
+                                const micros = (celMicros[key] ?? []).map(mc => {
+                                  const liveItem = liveMcMap[mc]
+                                  const tipos = (liveItem?.por_tipo ?? []).map(t => {
+                                    const cerradas = t.completado + t.no_completado
+                                    const pctAv    = t.total > 0 ? (cerradas / t.total) * 100 : 0
+                                    const proyVal  = esProy ? proyectarCierre(tNow, cerradas, t.iniciado + t.pendiente + t.suspendido) : null
+                                    const displayPct = esProy ? (proyVal ?? pctAv) : pctAv
+                                    return { tipo: t.tipo, cerradas, total: t.total, pctAv, proyVal, displayPct }
+                                  }).sort((a, b) => a.displayPct - b.displayPct)
+                                  const mcPts  = baseSeries[mc] ?? []
+                                  const mcLast = mcPts[mcPts.length - 1]
+                                  const displayVal = esProy ? (getProy(mcLast) ?? mcLast?.pct_avance ?? 0) : (mcLast?.pct_avance ?? 0)
+                                  return { mc, tipos, displayVal }
+                                }).sort((a, b) => a.displayVal - b.displayVal)
+                                const maxMCVal = Math.max(1, ...micros.map(m => m.displayVal))
+                                return (
+                                  <>
+                                    <p className="text-[9px] font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                                      {key} · avance OT en vivo ({micros.length} microcelda{micros.length !== 1 ? 's' : ''})
+                                    </p>
+                                    {micros.length === 0 ? (
+                                      <p className="text-[10px] text-slate-400 italic">Sin microceldas activas en esta célula</p>
+                                    ) : (
+                                      <div className="space-y-1">
+                                        {micros.map(({ mc, tipos, displayVal }) => {
+                                          const cMC   = cellColor(displayVal)
+                                          const mcOpen = expandedMicrosInCel.has(mc)
+                                          return (
+                                            <div key={mc} className="rounded-lg border border-slate-200 overflow-hidden bg-white">
+                                              <div
+                                                className="flex items-center gap-2 px-2 py-1.5 cursor-pointer select-none hover:bg-cyan-50/60 transition-colors"
+                                                onClick={() => toggleMicroInCel(mc)}
+                                                style={{ WebkitTapHighlightColor: 'transparent' }}
+                                              >
+                                                <svg
+                                                  className={`w-3 h-3 text-slate-400 shrink-0 transition-transform duration-150 ${mcOpen ? 'rotate-90' : ''}`}
+                                                  fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                                >
+                                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                                </svg>
+                                                <span className="flex-1 text-[10px] font-bold text-slate-700 truncate">{mc}</span>
+                                                <span className="text-[9px] text-slate-400 shrink-0">{tipos.length} tipo{tipos.length !== 1 ? 's' : ''}</span>
+                                                <span className={`ml-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${cMC.bg} ${cMC.text}`}>
+                                                  {Math.round(displayVal)}%
+                                                </span>
+                                              </div>
+                                              {mcOpen && (
+                                                <div className="border-t border-slate-100 bg-slate-50/40 py-1.5 px-2 space-y-1 border-l-2 border-cyan-200">
+                                                  {tipos.length === 0 ? (
+                                                    <p className="text-[10px] text-slate-400 italic pl-4">Sin OTs activas</p>
+                                                  ) : tipos.map(({ tipo, cerradas, total, pctAv, proyVal, displayPct }) => {
+                                                    const c = cellColor(displayPct)
+                                                    return (
+                                                      <div key={tipo} className="rounded-lg border border-slate-200 bg-white px-3 py-2 hover:bg-cyan-50/40 transition-colors">
+                                                        <div className="flex items-center gap-2 mb-1">
+                                                          <span className="flex-1 truncate text-[10px] font-semibold text-slate-700" title={toTitleCase(tipo)}>
+                                                            {toTitleCase(tipo)}
+                                                          </span>
+                                                          <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${c.bg} ${c.text}`}>
+                                                            {esProy
+                                                              ? (proyVal != null ? `${cerradas}/${total} → ${Math.round(proyVal)}%` : `${cerradas}/${total} · —`)
+                                                              : `${cerradas}/${total} · ${Math.round(pctAv)}%`
+                                                            }
+                                                          </span>
+                                                        </div>
+                                                        <div className="bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                                                          <div className={`h-full rounded-full ${c.bg} transition-all`} style={{ width: `${Math.min(100, displayPct)}%` }} />
+                                                        </div>
+                                                      </div>
+                                                    )
+                                                  })}
+                                                </div>
+                                              )}
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
+                                    )}
+                                  </>
+                                )
+                              })()
                             )}
                           </div>
                         </td>

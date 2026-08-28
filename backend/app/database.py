@@ -44,6 +44,14 @@ async def _migrate_users():
         "CREATE INDEX IF NOT EXISTS ix_rid_fecha ON registro_inicio_diario(fecha)",
         "CREATE INDEX IF NOT EXISTS ix_rid_tecnico ON registro_inicio_diario(tecnico)",
         "CREATE UNIQUE INDEX IF NOT EXISTS ix_rid_fecha_tecnico ON registro_inicio_diario(fecha, tecnico)",
+        # OT exacto por ciudad en snapshot_ciudad
+        "ALTER TABLE snapshot_ciudad ADD COLUMN ot_completado INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE snapshot_ciudad ADD COLUMN ot_no_completado INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE snapshot_ciudad ADD COLUMN ot_iniciado INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE snapshot_ciudad ADD COLUMN ot_pendiente INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE snapshot_ciudad ADD COLUMN ot_suspendido INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE snapshot_ciudad ADD COLUMN ot_total INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE snapshot_ciudad ADD COLUMN ot_pct_avance REAL NOT NULL DEFAULT 0.0",
     ]
     async with engine.begin() as conn:
         for sql in migrations:

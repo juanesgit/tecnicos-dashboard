@@ -15,7 +15,8 @@ import AvanceMapaView from '../components/AvanceMapaView'
 import Prediccion6pm from '../components/Prediccion6pm'
 import RetrasoActualView from '../components/RetrasoActualView'
 import Usuarios from './Usuarios'
-import Snapshots from './Snapshots'
+import Admin from './Admin'
+import ProductividadView from '../components/ProductividadView'
 
 /* ─── KPI banner compacto ─────────────────────────────────────── */
 function KpiCard({ label, value, color = 'slate', sub }) {
@@ -189,6 +190,7 @@ function MapasTab({ rows, filtros, loading, onDetalle, avance, avanceLoading }) 
           celulaFiltro={celulaFiltro}
           avance={avance}
           loading={avanceLoading}
+          rows={loading ? [] : rows}
         />
       )}
     </div>
@@ -548,9 +550,13 @@ export default function Dashboard() {
           />
         )}
 
+        {activeTab === 'productividad' && (
+          <ProductividadView celulaFiltro={celulaEfectiva} />
+        )}
+
         {activeTab === 'usuarios' && <Usuarios />}
 
-        {activeTab === 'snapshots' && user?.role === 'admin' && <Snapshots />}
+        {activeTab === 'snapshots' && user?.role === 'admin' && <Admin />}
 
       </div>
 

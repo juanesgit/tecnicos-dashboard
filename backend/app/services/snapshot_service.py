@@ -67,6 +67,30 @@ def _calcular_stats(datos: List[Dict[str, Any]]):
             "en_riesgo": mc_en_riesgo,
         })
 
+    # Agrupar por ciudad (campo ciudad_nodo añadido por datos_service)
+    grupos_ciudad: Dict[str, list] = defaultdict(list)
+    for d in datos:
+        ciudad = d.get("ciudad_nodo", "Sin clasificar") or "Sin clasificar"
+        grupos_ciudad[ciudad].append(d)
+
+    por_ciudad = []
+    for ciudad, items in grupos_ciudad.items():
+        # Tomar célula y microcelda del primer elemento (todos deberían ser iguales para esa ciudad)
+        ct_celula    = items[0].get("celula", "Sin clasificar") or "Sin clasificar"
+        ct_mc        = items[0].get("microcelda", "Sin clasificar") or "Sin clasificar"
+        ct_total     = len(items)
+        ct_retraso   = sum(1 for d in items if d.get("estado_actual") in ESTADOS_RETRASO)
+        ct_parada    = sum(1 for d in items if d.get("estado_siguiente") == "Parada futura")
+        ct_en_riesgo = sum(1 for d in items if d.get("riesgo_6pm") == "En riesgo")
+        ct_vals      = [d.get("cumplimiento_time_slot_dia", 0) for d in items if d.get("cumplimiento_time_slot_dia") is not None]
+        ct_cump      = round(sum(ct_vals) / len(ct_vals), 1) if ct_vals else 0.0
+        por_ciudad.append({
+            "ciudad": ciudad, "celula": ct_celula, "microcelda": ct_mc,
+            "total": ct_total, "con_retraso": ct_retraso,
+            "con_parada": ct_parada, "cumplimiento_pct": ct_cump,
+            "en_riesgo": ct_en_riesgo,
+        })
+
     return {
         "total": total,
         "con_retraso": con_retraso,
@@ -74,6 +98,7 @@ def _calcular_stats(datos: List[Dict[str, Any]]):
         "cumplimiento_pct": cumplimiento,
         "por_celula": por_celula,
         "por_microcelda": por_microcelda,
+        "por_ciudad": por_ciudad,
     }
 
 
@@ -142,7 +167,7 @@ async def _capture_once():
     from app.services.datos_service import ejecutar_consulta_v2, serializar_datos
     from app.services.cache_service import get_cached_datos, set_cached_datos
     from app.database import AsyncSessionLocal
-    from app.models.snapshot import SnapshotGlobal, SnapshotCelula, SnapshotMicrocelda
+    from app.models.snapshot import SnapshotGlobal, SnapshotCelula, SnapshotMicrocelda, SnapshotCiudad
 
     try:
         # Reutilizar caché si existe, si no consultar
@@ -169,8 +194,9 @@ async def _capture_once():
         tz    = pytz.timezone(settings.APP_TIMEZONE)
         now   = datetime.now(tz).replace(tzinfo=None)  # naive UTC-equivalente local
 
-        # ── Capturar avance OT por microcelda ──────────────────────────────────
-        avance_mc: dict = {}
+        # ── Capturar avance OT por microcelda y por ciudad ─────────────────────
+        avance_mc: dict   = {}
+        avance_ct: dict   = {}
         try:
             loop = asyncio.get_event_loop()
             from app.routers.avance import _calcular_avance
@@ -178,7 +204,12 @@ async def _capture_once():
             for item in avance_data.get("por_microcelda", []):
                 key = (item.get("celula", ""), item.get("microcelda", ""))
                 avance_mc[key] = item
-            logger.debug("[Snapshot] Avance OT capturado para %d microceldas", len(avance_mc))
+            for item in avance_data.get("por_ciudad", []):
+                avance_ct[item.get("ciudad", "")] = item
+            logger.debug(
+                "[Snapshot] Avance OT: %d microceldas, %d ciudades",
+                len(avance_mc), len(avance_ct),
+            )
         except Exception as avance_exc:
             logger.warning("[Snapshot] Error capturando avance OT: %s", avance_exc)
 
@@ -248,10 +279,32 @@ async def _capture_once():
                     ot_pct_avance    = float(ot.get("pct_avance", 0.0)),
                 ))
 
+            for ct in stats.get("por_ciudad", []):
+                ot_ct = avance_ct.get(ct["ciudad"], {})
+                session.add(SnapshotCiudad(
+                    snapshot_id      = snap.id,
+                    ciudad           = ct["ciudad"],
+                    celula           = ct["celula"],
+                    microcelda       = ct["microcelda"],
+                    total            = ct["total"],
+                    con_retraso      = ct["con_retraso"],
+                    con_parada       = ct["con_parada"],
+                    cumplimiento_pct = ct["cumplimiento_pct"],
+                    en_riesgo        = ct["en_riesgo"],
+                    ot_completado    = int(ot_ct.get("completado",    0)),
+                    ot_no_completado = int(ot_ct.get("no_completado", 0)),
+                    ot_iniciado      = int(ot_ct.get("iniciado",      0)),
+                    ot_pendiente     = int(ot_ct.get("pendiente",     0)),
+                    ot_suspendido    = int(ot_ct.get("suspendido",    0)),
+                    ot_total         = int(ot_ct.get("total",         0)),
+                    ot_pct_avance    = float(ot_ct.get("pct_avance",  0.0)),
+                ))
+
             await session.commit()
             logger.info(
-                "[Snapshot] Capturado %s — %d técnicos, %d con retraso",
-                now.strftime("%H:%M"), stats["total"], stats["con_retraso"]
+                "[Snapshot] Capturado %s — %d técnicos, %d con retraso, %d ciudades",
+                now.strftime("%H:%M"), stats["total"], stats["con_retraso"],
+                len(stats.get("por_ciudad", [])),
             )
 
         # ── Registrar hora de inicio diaria ───────────────────────────────

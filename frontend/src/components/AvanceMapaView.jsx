@@ -109,7 +109,7 @@ function GrupoEstado({ estadoKey, porCelula }) {
 /* ══════════════════════════════════════════════════════════════
    Componente principal
 ══════════════════════════════════════════════════════════════ */
-export default function AvanceMapaView({ celulaFiltro = '' }) {
+export default function AvanceMapaView({ celulaFiltro = '', rows = [] }) {
   const [avance,  setAvance]  = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -196,7 +196,7 @@ export default function AvanceMapaView({ celulaFiltro = '' }) {
 
       {/* ── Mapa de calor de avance ── */}
       <div className="bg-white rounded-xl border border-slate-100 p-3">
-        <MapaCalorAvance celulaFiltro={celulaFiltro} />
+        <MapaCalorAvance celulaFiltro={celulaFiltro} rows={rows} />
       </div>
 
       {/* ── Separador ── */}

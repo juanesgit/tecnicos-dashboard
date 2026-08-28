@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, Response
 
 from app.config import settings
 from app.database import init_db
-from app.routers import auth, datos, feedback, push, users, usuarios, zonas, historico, avance
+from app.routers import auth, datos, feedback, push, users, usuarios, zonas, historico, avance, productividad, admin
 from app.services.zonas_service import reload_zonas
 from app.services.snapshot_service import start_snapshot_task, stop_snapshot_task
 
@@ -23,7 +23,7 @@ STATIC_DIR.mkdir(parents=True, exist_ok=True)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    # Cargar mapa de zonas al arrancar
+    # Cargar mapa de zonas al arrancar (incluye overrides de BD)
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, reload_zonas)
     # Arrancar captura periódica de snapshots
@@ -48,15 +48,17 @@ app.add_middleware(
 )
 
 # ── Routers API — prefijo /api para compatibilidad con el frontend compilado ──
-app.include_router(auth.router, prefix="/api")
-app.include_router(datos.router, prefix="/api")
-app.include_router(feedback.router, prefix="/api")
-app.include_router(push.router, prefix="/api")
-app.include_router(users.router, prefix="/api")
-app.include_router(usuarios.router, prefix="/api")
-app.include_router(zonas.router, prefix="/api")
-app.include_router(historico.router, prefix="/api")
-app.include_router(avance.router,   prefix="/api")
+app.include_router(auth.router,         prefix="/api")
+app.include_router(datos.router,        prefix="/api")
+app.include_router(feedback.router,     prefix="/api")
+app.include_router(push.router,         prefix="/api")
+app.include_router(users.router,        prefix="/api")
+app.include_router(usuarios.router,     prefix="/api")
+app.include_router(zonas.router,        prefix="/api")
+app.include_router(historico.router,    prefix="/api")
+app.include_router(avance.router,       prefix="/api")
+app.include_router(productividad.router, prefix="/api")
+app.include_router(admin.router,        prefix="/api")
 
 
 # ── PWA: Service Worker (headers especiales) ──────────────────────────────────
