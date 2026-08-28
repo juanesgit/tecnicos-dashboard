@@ -639,6 +639,12 @@ function AdherenciaTab() {
 
   const fmtDia = (iso) => new Date(iso).toLocaleDateString('es-CO', { weekday: 'short', day: '2-digit', month: 'short' })
 
+  const fmtTiempo = (min) => {
+    if (!min || min === 0) return '—'
+    if (min < 60) return `${min}m`
+    return `${Math.floor(min / 60)}h ${min % 60}m`
+  }
+
   const EVT_ICON = {
     login: '🔑', tab_dashboard: '📊', tab_avance: '📈',
     tab_historico: '🕐', tab_productividad: '⚡', tab_admin: '⚙️',
@@ -675,10 +681,10 @@ function AdherenciaTab() {
           {/* Cards de resumen */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {[
-              { label: 'Activos hoy',    val: data.resumen.activos_hoy,    color: 'text-emerald-600' },
-              { label: 'Activos semana', val: data.resumen.activos_semana, color: 'text-amber-600'   },
-              { label: 'Sin actividad',  val: data.resumen.nunca_entraron, color: 'text-slate-400'   },
-              { label: 'Total usuarios', val: data.resumen.total_usuarios, color: 'text-slate-700'   },
+              { label: 'Activos hoy',    val: data.resumen.activos_hoy,                          color: 'text-emerald-600' },
+              { label: 'Activos semana', val: data.resumen.activos_semana,                        color: 'text-amber-600'   },
+              { label: 'Sin actividad',  val: data.resumen.nunca_entraron,                        color: 'text-slate-400'   },
+              { label: 'Tiempo total',   val: fmtTiempo(data.resumen.total_tiempo_min),           color: 'text-violet-600'  },
             ].map(c => (
               <div key={c.label} className="bg-white rounded-xl border border-slate-100 p-3 text-center">
                 <p className={`text-2xl font-bold tabular-nums ${c.color}`}>{c.val}</p>
@@ -710,6 +716,7 @@ function AdherenciaTab() {
                     <th className="px-3 py-2.5 font-semibold text-slate-500 text-right">Días activos</th>
                     <th className="px-3 py-2.5 font-semibold text-slate-500 text-right">Logins</th>
                     <th className="px-3 py-2.5 font-semibold text-slate-500 text-right">Eventos</th>
+                    <th className="px-3 py-2.5 font-semibold text-slate-500 text-right">Tiempo</th>
                     <th className="px-3 py-2.5 w-8" />
                   </tr>
                 </thead>
@@ -740,6 +747,7 @@ function AdherenciaTab() {
                           </td>
                           <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{u.logins_30}</td>
                           <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{u.total_eventos_30}</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-violet-600 font-medium">{fmtTiempo(u.tiempo_activo_min)}</td>
                           <td className="px-2 py-2.5 text-center">
                             <button
                               onClick={() => openTimeline(u.user_id)}
@@ -754,7 +762,7 @@ function AdherenciaTab() {
 
                         {isOpen && (
                           <tr key={`tl-${u.user_id}`} className="border-b border-slate-100">
-                            <td colSpan={8} className="px-4 py-3 bg-slate-50">
+                            <td colSpan={9} className="px-4 py-3 bg-slate-50">
                               {timeline === null ? (
                                 <div className="flex items-center gap-2 text-xs text-slate-400">
                                   <div className="w-3 h-3 border border-slate-300 border-t-slate-600 rounded-full animate-spin" />
@@ -768,6 +776,11 @@ function AdherenciaTab() {
                                     <div key={dia.fecha} className="flex items-start gap-2">
                                       <span className="text-[11px] font-semibold text-slate-500 w-28 shrink-0 pt-0.5">
                                         {fmtDia(dia.fecha)}
+                                        {dia.tiempo_activo_min > 0 && (
+                                          <span className="ml-1 text-violet-500 font-medium">
+                                            {fmtTiempo(dia.tiempo_activo_min)}
+                                          </span>
+                                        )}
                                       </span>
                                       <div className="flex flex-wrap gap-1">
                                         {Object.entries(
