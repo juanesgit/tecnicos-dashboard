@@ -57,6 +57,8 @@ function MonitorTab() {
   const [loading, setLoading]     = useState(true)
   const [purging, setPurging]     = useState(false)
   const [dias, setDias]           = useState(7)
+  const [deleting, setDeleting]   = useState(null)   // snapshot_id en proceso
+  const [confirmId, setConfirmId] = useState(null)   // snapshot_id pendiente confirmar
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -75,6 +77,21 @@ function MonitorTab() {
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  const handleDelete = async (id) => {
+    setDeleting(id)
+    setConfirmId(null)
+    try {
+      await api.delete(`/historico/admin/snapshots/${id}`)
+      toast.success(`Snapshot ${id} eliminado`)
+      setSnapshots(prev => prev.filter(s => s.id !== id))
+      fetchData()
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Error al eliminar snapshot')
+    } finally {
+      setDeleting(null)
+    }
+  }
 
   const handlePurge = async () => {
     if (!confirm(`¿Eliminar snapshots con más de ${dias} días de antigüedad?`)) return
@@ -156,10 +173,14 @@ function MonitorTab() {
                   <th className="px-3 py-2 font-semibold text-slate-500 text-right">Retraso</th>
                   <th className="px-3 py-2 font-semibold text-slate-500 text-right">%</th>
                   <th className="px-3 py-2 font-semibold text-slate-500 text-right">Cumpl.</th>
+                  <th className="px-3 py-2 w-8" />
                 </tr>
               </thead>
               <tbody>
-                {snapshots.map(s => (
+                {snapshots.map(s => {
+                  const isDeleting   = deleting   === s.id
+                  const isConfirming = confirmId  === s.id
+                  return (
                   <tr key={s.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
                     <td className="px-3 py-2 font-mono text-slate-700">{s.captured_at}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-slate-700">{s.total}</td>
@@ -176,8 +197,40 @@ function MonitorTab() {
                         {s.cumplimiento_pct}%
                       </Badge>
                     </td>
+                    <td className="px-3 py-2 text-right">
+                      {isConfirming ? (
+                        <div className="flex items-center gap-1 justify-end">
+                          <button
+                            onClick={() => handleDelete(s.id)}
+                            className="text-[10px] bg-red-600 text-white rounded px-1.5 py-0.5 hover:bg-red-700"
+                          >Sí</button>
+                          <button
+                            onClick={() => setConfirmId(null)}
+                            className="text-[10px] bg-slate-200 text-slate-700 rounded px-1.5 py-0.5 hover:bg-slate-300"
+                          >No</button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmId(s.id)}
+                          disabled={!!deleting}
+                          title="Eliminar snapshot"
+                          className="text-slate-300 hover:text-red-500 transition-colors disabled:opacity-30"
+                        >
+                          {isDeleting ? (
+                            <svg className="w-3.5 h-3.5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                          ) : (
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          )}
+                        </button>
+                      )}
+                    </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
             {snapshots.length === 0 && (
