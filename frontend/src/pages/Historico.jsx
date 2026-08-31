@@ -49,12 +49,12 @@ function GraficaDistribucion({ alarmas }) {
 
   const grupos = DIST_BUCKETS.map(() => [])
   abiertas.forEach(a => {
-    const edad = Math.max(0, Math.floor((now - new Date(a.fecha_creacion).getTime()) / 60000))
+    const retraso = Math.max(0, a.minutos_retraso_inicio ?? 0)
     let idx = DIST_BUCKETS.length - 1
     for (let i = 0; i < DIST_BUCKETS.length; i++) {
-      if (edad < DIST_BUCKETS[i].max) { idx = i; break }
+      if (retraso < DIST_BUCKETS[i].max) { idx = i; break }
     }
-    grupos[idx].push({ ...a, edadMin: edad })
+    grupos[idx].push({ ...a, edadMin: retraso })
   })
 
   const total  = abiertas.length

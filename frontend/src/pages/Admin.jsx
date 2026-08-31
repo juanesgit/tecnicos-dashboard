@@ -1056,12 +1056,12 @@ function AlarmasTab() {
     celulas.map(cel => {
       const grupos = ALARM_BUCKETS.map(() => [])
       abiertas.filter(a => a.celula === cel).forEach(a => {
-        const edad = Math.max(0, Math.floor((now - new Date(a.fecha_creacion).getTime()) / 60000))
+        const retraso = Math.max(0, a.minutos_retraso_inicio ?? 0)
         let idx = ALARM_BUCKETS.length - 1
         for (let i = 0; i < ALARM_BUCKETS.length; i++) {
-          if (edad < ALARM_BUCKETS[i].max) { idx = i; break }
+          if (retraso < ALARM_BUCKETS[i].max) { idx = i; break }
         }
-        grupos[idx].push({ ...a, edadMin: edad })
+        grupos[idx].push({ ...a, edadMin: retraso })
       })
       return [cel, grupos]
     })
