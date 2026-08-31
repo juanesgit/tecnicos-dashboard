@@ -333,6 +333,14 @@ async def procesar_alarmas(datos: List[Dict[str, Any]]) -> None:
                 continue
             min_ret   = _minutos_retraso(d)
             nivel_nuevo = _nivel_por_minutos(min_ret)
+
+            # Enriquecer campos que pueden haber quedado NULL en alarmas antiguas
+            alarma.minutos_retraso_inicio = alarma.minutos_retraso_inicio or (min_ret if min_ret > 0 else None)
+            alarma.ot       = alarma.ot       or str(d.get("ot_actual")       or "").strip() or None
+            alarma.actividad= alarma.actividad or str(d.get("actividad_actual") or "").strip() or None
+            alarma.ciudad   = alarma.ciudad   or d.get("ciudad_nodo") or d.get("ciudad_actual") or None
+            alarma.tipo_retraso = alarma.tipo_retraso or d.get("estado_actual") or None
+
             if nivel_nuevo != alarma.nivel:
                 ant = alarma.nivel
                 alarma.nivel = nivel_nuevo
