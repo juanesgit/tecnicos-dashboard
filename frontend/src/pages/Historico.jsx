@@ -220,15 +220,13 @@ export default function Historico({
   const [loading,  setLoading]  = useState(false)
   const [alarmas,  setAlarmas]  = useState([])
 
-  // Fetch de alarmas abiertas para la gráfica de distribución
-  const isAdmin = user?.role === 'admin'
+  // Fetch de técnicos retrasados en tiempo real (MySQL vía caché) para gráfica distribución
   const fetchAlarmas = useCallback(async () => {
     try {
-      const ep = isAdmin ? '/alarmas/todas' : '/alarmas/mis'
-      const res = await api.get(ep)
+      const res = await api.get('/alarmas/distribucion-retrasos')
       setAlarmas(res.data ?? [])
     } catch { /* silencioso — la gráfica no aparece si falla */ }
-  }, [isAdmin])
+  }, [])
 
   useEffect(() => {
     fetchAlarmas()

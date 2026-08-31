@@ -1,7 +1,7 @@
 """Router de alarmas."""
 from __future__ import annotations
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select as sa_select
@@ -10,6 +10,7 @@ from app.database import get_db
 from app.models.alarma import Alarma, AlarmaEvento, SLA_MAP
 from app.models.user import User
 from app.services.auth import get_current_user
+from app.services.cache_service import get_cached_datos
 
 router = APIRouter(prefix="/alarmas", tags=["Alarmas"])
 ROLES = {"admin", "supervisor_ccot"}
@@ -75,6 +76,38 @@ async def todas(cu: User = Depends(get_current_user), db: AsyncSession = Depends
         raise HTTPException(status_code=403, detail="Solo admin")
     rows = (await db.execute(sa_select(Alarma).order_by(Alarma.estado.asc(), Alarma.nivel.desc(), Alarma.fecha_creacion.asc()))).scalars().all()
     return [_ser(a) for a in rows]
+
+
+@router.get("/distribucion-retrasos")
+async def distribucion_retrasos(cu: User = Depends(get_current_user)) -> List[Dict[str, Any]]:
+    """Técnicos con retraso activo desde el caché de datos operacionales (MySQL).
+    Devuelve solo los campos necesarios para la gráfica de distribución."""
+    _check(cu)
+    cached = get_cached_datos()
+    if not cached:
+        return []
+    ESTADOS = {"Retraso actual", "Retraso en siguiente"}
+    result = []
+    for d in cached.get("datos", []):
+        estado = d.get("estado_actual", "")
+        if estado not in ESTADOS:
+            continue
+        min_ret = int(d.get("minutos_retraso") or 0)
+        if estado == "Retraso en siguiente":
+            min_ret = int(d.get("minutos_retraso_siguiente") or min_ret)
+        if min_ret <= 0:
+            continue
+        result.append({
+            "tecnico":    d.get("Técnico") or d.get("técnico") or "",
+            "celula":     d.get("celula", "Sin clasificar"),
+            "microcelda": d.get("microcelda", "Sin clasificar"),
+            "ciudad":     d.get("ciudad_nodo") or d.get("ciudad_actual") or "",
+            "actividad":  d.get("actividad_actual") or "",
+            "ot":         str(d.get("ot_actual") or "").strip(),
+            "estado":     "abierta",          # compat con GraficaDistribucion
+            "minutos_retraso_inicio": min_ret,
+        })
+    return result
 
 
 @router.patch("/{alarma_id}/nota")
