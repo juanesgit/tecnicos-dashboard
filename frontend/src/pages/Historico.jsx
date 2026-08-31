@@ -24,7 +24,7 @@ const COLORES_CELULA = [
   '#16a34a', '#db2777', '#ea580c', '#4f46e5',
 ]
 
-// ── Gráfica distribución de retrasos por antigüedad de alarma ────────────────
+// ── Gráfica distribución de retrasos por minutos de retraso ─────────────────
 const DIST_BUCKETS = [
   { label: '0–30 m',  max: 30,       color: '#64748b', light: '#f1f5f9' },
   { label: '30–60 m', max: 60,       color: '#ca8a04', light: '#fefce8' },
@@ -68,7 +68,7 @@ function GraficaDistribucion({ alarmas }) {
   return (
     <div className="bg-white rounded-xl border border-slate-100 px-4 pt-3 pb-2">
       <p className="text-xs font-semibold text-slate-600 mb-2">
-        Distribución de alarmas por tiempo abierto — {abiertas.length} abierta{abiertas.length !== 1 ? 's' : ''} ahora
+        Distribución de alarmas por tiempo de retraso — {abiertas.length} abierta{abiertas.length !== 1 ? 's' : ''} ahora
       </p>
       <div className="relative overflow-visible" style={{ userSelect: 'none' }}>
         <svg
