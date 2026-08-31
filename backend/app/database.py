@@ -100,6 +100,10 @@ async def _migrate_users():
         "ALTER TABLE alarmas ADD COLUMN ciudad VARCHAR(80)",
         "ALTER TABLE alarmas ADD COLUMN tipo_retraso VARCHAR(40)",
         "ALTER TABLE alarmas ADD COLUMN minutos_retraso_inicio INTEGER",
+        "ALTER TABLE alarmas ADD COLUMN actividad VARCHAR(120)",
+        "ALTER TABLE alarmas ADD COLUMN ot VARCHAR(80)",
+        # last_login en users para tier de asignación de alarmas
+        "ALTER TABLE users ADD COLUMN last_login DATETIME",
     ]
     async with engine.begin() as conn:
         for sql in migrations:

@@ -32,6 +32,8 @@ def _ser(a: Alarma) -> Dict[str, Any]:
         "ciudad": a.ciudad,
         "tipo_retraso": a.tipo_retraso,
         "minutos_retraso_inicio": a.minutos_retraso_inicio,
+        "actividad": a.actividad,
+        "ot": a.ot,
     }
 
 

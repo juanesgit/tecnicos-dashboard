@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 ESTADOS_RETRASO  = {"Retraso actual", "Retraso en siguiente"}
 MIN_RETRASO_LEVE = 30   # Umbral mínimo para crear alarma
+MAX_ALARMAS_SUP  = 10   # Cap de alarmas abiertas por supervisor
+HORAS_ACTIVO     = 8    # Horas desde último login para considerar "activo reciente"
 
 SLA_MIN = {"leve": 45, "moderada": 20, "critica": 10}
 
@@ -46,22 +48,64 @@ def _minutos_retraso(d: Dict) -> int:
 
 
 async def _supervisores_ccot() -> List[Dict[str, Any]]:
-    from app.routers.presencia import manager
-    online = manager.get_online()
-    supers = [u for u in online if u.get("role") == "supervisor_ccot"]
-    if supers:
-        return supers
+    """
+    Devuelve candidatos a recibir alarmas en orden de prioridad:
+      Tier 1 — WebSocket activo ahora mismo
+      Tier 2 — login en las últimas HORAS_ACTIVO horas (activo reciente)
+      Tier 3 — todos los supervisor_ccot activos en BD (fallback)
+    Siempre incluye el tier alcanzado en el log.
+    """
+    from datetime import timedelta
     from app.database import AsyncSessionLocal
     from app.models.user import User
     from sqlalchemy import select as sa_select
+
+    # Tier 1: WebSocket online
+    from app.routers.presencia import manager
+    online = manager.get_online()
+    t1 = [u for u in online if u.get("role") == "supervisor_ccot"]
+    if t1:
+        logger.info("[Alarma][Tier1] %d supervisor(es) online via WS", len(t1))
+        return t1
+
+    # Tier 2: activos recientes (last_login dentro de las últimas HORAS_ACTIVO h)
+    from app.config import settings as _s
+    import pytz as _pytz
+    tz  = _pytz.timezone(_s.APP_TIMEZONE)
+    ahora = datetime.now(tz).replace(tzinfo=None)
+    limite = ahora - timedelta(hours=HORAS_ACTIVO)
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            sa_select(User).where(
+                User.role == "supervisor_ccot",
+                User.is_active == True,
+                User.last_login >= limite,
+            )
+        )
+        t2 = [{"user_id": u.id, "full_name": u.full_name} for u in result.scalars().all()]
+
+    if t2:
+        logger.info("[Alarma][Tier2] %d supervisor(es) activo(s) en las últimas %dh", len(t2), HORAS_ACTIVO)
+        return t2
+
+    # Tier 3: todos los activos en BD
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             sa_select(User).where(User.role == "supervisor_ccot", User.is_active == True)
         )
-        return [{"user_id": u.id, "full_name": u.full_name} for u in result.scalars().all()]
+        t3 = [{"user_id": u.id, "full_name": u.full_name} for u in result.scalars().all()]
+
+    logger.info("[Alarma][Tier3] %d supervisor(es) en BD (fallback total)", len(t3))
+    return t3
 
 
 async def _siguiente_supervisor(supervisores: List[Dict]) -> Optional[Dict]:
+    """
+    Round-robin con cap: elige al supervisor con menos alarmas abiertas.
+    Si todos superan MAX_ALARMAS_SUP, igual asigna al de menor carga
+    pero advierte en log (sobrecarga).
+    """
     if not supervisores:
         return None
     from app.database import AsyncSessionLocal
@@ -75,7 +119,16 @@ async def _siguiente_supervisor(supervisores: List[Dict]) -> Optional[Dict]:
             .group_by(Alarma.asignado_a)
         )
         carga = {row[0]: row[1] for row in result.fetchall()}
-    return min(supervisores, key=lambda s: carga.get(s["user_id"], 0))
+
+    elegido = min(supervisores, key=lambda s: carga.get(s["user_id"], 0))
+    carga_elegido = carga.get(elegido["user_id"], 0)
+
+    if carga_elegido >= MAX_ALARMAS_SUP:
+        logger.warning(
+            "[Alarma][Sobrecarga] %s ya tiene %d alarmas abiertas (cap=%d) — asignando de todas formas",
+            elegido.get("full_name"), carga_elegido, MAX_ALARMAS_SUP,
+        )
+    return elegido
 
 
 async def _push(user_id: int, titulo: str, cuerpo: str):
@@ -109,6 +162,91 @@ async def _push(user_id: int, titulo: str, cuerpo: str):
         logger.warning("[Alarma][Push] %s", exc)
 
 
+async def _rebalancear_entre_online() -> None:
+    """
+    Rebalanceo periódico: se llama al final de cada ciclo de procesar_alarmas.
+    Si hay ≥ 2 supervisores_ccot online con más del 50% de diferencia de carga,
+    mueve alarmas del más cargado al menos cargado hasta equilibrar.
+    Puede hacer múltiples pasadas hasta que no haya desequilibrio.
+    """
+    from app.database import AsyncSessionLocal
+    from app.models.alarma import Alarma, AlarmaEvento
+    from sqlalchemy import select as sa_select, func
+    import pytz
+    from datetime import datetime
+
+    from app.routers.presencia import manager
+
+    online = manager.get_online()
+    online_sups = [u for u in online if u.get("role") == "supervisor_ccot"]
+    if len(online_sups) < 2:
+        return
+
+    tz  = pytz.timezone(settings.APP_TIMEZONE)
+    now = datetime.now(tz).replace(tzinfo=None)
+    online_ids = [u["user_id"] for u in online_sups]
+    sup_info   = {u["user_id"]: u for u in online_sups}
+
+    MAX_PASADAS = 5
+    for pasada in range(MAX_PASADAS):
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                sa_select(Alarma.asignado_a, func.count(Alarma.id).label("cnt"))
+                .where(Alarma.estado == "abierta", Alarma.asignado_a.in_(online_ids))
+                .group_by(Alarma.asignado_a)
+            )
+            carga = {row[0]: row[1] for row in result.fetchall()}
+
+        # Asegurar que todos los supervisores online aparecen (aunque tengan 0)
+        for sid in online_ids:
+            carga.setdefault(sid, 0)
+
+        sup_max_id = max(online_ids, key=lambda sid: carga[sid])
+        sup_min_id = min(online_ids, key=lambda sid: carga[sid])
+
+        carga_max = carga[sup_max_id]
+        carga_min = carga[sup_min_id]
+
+        if sup_max_id == sup_min_id or carga_max == 0:
+            break
+        diferencia = carga_max - carga_min
+        if diferencia < 2 or (diferencia / carga_max) < 0.5:
+            break
+
+        a_mover = diferencia // 2
+        nombre_destino = sup_info[sup_min_id].get("full_name", str(sup_min_id))
+
+        async with AsyncSessionLocal() as session:
+            alarmas_res = await session.execute(
+                sa_select(Alarma)
+                .where(Alarma.estado == "abierta", Alarma.asignado_a == sup_max_id)
+                .order_by(Alarma.nivel.asc(), Alarma.fecha_creacion.desc())
+                .limit(a_mover)
+            )
+            alarmas = alarmas_res.scalars().all()
+
+            for alarma in alarmas:
+                alarma.asignado_a       = sup_min_id
+                alarma.asignado_nombre  = nombre_destino
+                session.add(AlarmaEvento(
+                    alarma_id   = alarma.id,
+                    tipo        = "reasignacion",
+                    user_id     = sup_min_id,
+                    descripcion = f"Rebalanceo periódico: reasignada a {nombre_destino} ({carga_max}→{carga_max - a_mover} vs {carga_min}→{carga_min + a_mover}).",
+                    ts          = now,
+                ))
+
+            if alarmas:
+                await session.commit()
+                logger.info(
+                    "[Alarma][Rebalanceo] Pasada %d: %d alarma(s) sup%d(%d)→%s(%d)",
+                    pasada + 1, len(alarmas), sup_max_id, carga_max,
+                    nombre_destino, carga_min,
+                )
+            else:
+                break  # Nada que mover
+
+
 async def procesar_alarmas(datos: List[Dict[str, Any]]) -> None:
     from app.database import AsyncSessionLocal
     from app.models.alarma import Alarma, AlarmaEvento
@@ -116,6 +254,30 @@ async def procesar_alarmas(datos: List[Dict[str, Any]]) -> None:
 
     tz  = pytz.timezone(settings.APP_TIMEZONE)
     now = datetime.now(tz).replace(tzinfo=None)
+
+    # ── 0. Cierre de alarmas de días anteriores ───────────────────────────────
+    hoy = now.date()
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(sa_select(Alarma).where(Alarma.estado == "abierta"))
+        alarmas_viejas = [a for a in result.scalars().all() if a.fecha_creacion.date() < hoy]
+        if alarmas_viejas:
+            for alarma in alarmas_viejas:
+                alarma.estado       = "cerrada"
+                alarma.fecha_cierre = now
+                edad = int((now - alarma.fecha_creacion).total_seconds() / 60)
+                alarma.tiempo_resolucion_min = edad
+                alarma.sla_cumplido = False  # fin de operación: SLA no cumplido
+                session.add(AlarmaEvento(
+                    alarma_id   = alarma.id,
+                    tipo        = "cierre_fin_operacion",
+                    descripcion = f"Cerrada automáticamente al inicio del nuevo día operativo ({alarma.fecha_creacion.date()}).",
+                    ts          = now,
+                ))
+            await session.commit()
+            logger.info(
+                "[Alarma] Cierre fin operación: %d alarma(s) de días anteriores cerradas.",
+                len(alarmas_viejas),
+            )
 
     # ── Técnicos retrasados con ≥ 30 minutos de retraso ──────────────────────
     retrasados: Dict[str, Dict] = {}
@@ -126,6 +288,18 @@ async def procesar_alarmas(datos: List[Dict[str, Any]]) -> None:
                 tec = d.get("Técnico") or d.get("técnico") or ""
                 if tec:
                     retrasados[tec] = d
+
+    # ── DEBUG: mostrar qué nodo/celula tienen los técnicos retrasados ───────────
+    for tec, d in retrasados.items():
+        logger.info(
+            "[Alarma][DEBUG] Retrasado: %s | Nodo=%s | celula=%s | microcelda=%s | ciudad_nodo=%s | min=%d",
+            tec,
+            d.get("Nodo") or d.get("nodo") or "N/A",
+            d.get("celula", "N/A"),
+            d.get("microcelda", "N/A"),
+            d.get("ciudad_nodo", "N/A"),
+            _minutos_retraso(d),
+        )
 
     supervisores = await _supervisores_ccot()
     eventos_nuevos: List[AlarmaEvento] = []
@@ -195,6 +369,8 @@ async def procesar_alarmas(datos: List[Dict[str, Any]]) -> None:
                 ciudad         = d.get("ciudad_nodo") or d.get("ciudad_actual") or None,
                 tipo_retraso   = d.get("estado_actual") or None,
                 minutos_retraso_inicio = min_ret if min_ret > 0 else None,
+                actividad      = d.get("actividad_actual") or None,
+                ot             = str(d.get("ot_actual") or "").strip() or None,
                 nivel          = nivel,
                 estado         = "abierta",
                 asignado_a     = sup["user_id"],
@@ -235,3 +411,6 @@ async def procesar_alarmas(datos: List[Dict[str, Any]]) -> None:
                 "[Alarma] Ciclo: %d retrasados≥30min, nuevas=%d, cerradas=%d",
                 len(retrasados), n_nuevas, n_cerradas,
             )
+
+    # ── 4. Rebalanceo periódico entre supervisores online ─────────────────────
+    await _rebalancear_entre_online()

@@ -21,6 +21,8 @@ class Alarma(Base):
     ciudad:                 Mapped[Optional[str]]    = mapped_column(String(80),  nullable=True)
     tipo_retraso:           Mapped[Optional[str]]    = mapped_column(String(40),  nullable=True)   # "Retraso actual" | "Retraso en siguiente"
     minutos_retraso_inicio: Mapped[Optional[int]]   = mapped_column(Integer,     nullable=True)   # retraso al crear la alarma
+    actividad:              Mapped[Optional[str]]    = mapped_column(String(120), nullable=True)   # tipo de actividad OT actual
+    ot:                     Mapped[Optional[str]]    = mapped_column(String(80),  nullable=True)   # número/código OT actual
     nivel:                  Mapped[str]              = mapped_column(String(20),  nullable=False, default="leve")
     estado:                 Mapped[str]              = mapped_column(String(20),  nullable=False, default="abierta", index=True)
     asignado_a:             Mapped[int]              = mapped_column(Integer,     nullable=False, index=True)

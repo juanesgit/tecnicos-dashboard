@@ -213,6 +213,15 @@ async def _capture_once():
         except Exception as avance_exc:
             logger.warning("[Snapshot] Error capturando avance OT: %s", avance_exc)
 
+        # ── Procesar alarmas en CADA captura (antes del dedup de snapshot) ──────
+        # Se ejecuta cada 5 min independientemente de si el snapshot cambia,
+        # porque los técnicos retrasados pueden cambiar aunque los totales sean iguales.
+        try:
+            from app.services.alarma_service import procesar_alarmas
+            await procesar_alarmas(datos)
+        except Exception as alarma_exc:
+            logger.warning("[Alarma] Error en procesamiento: %s", alarma_exc)
+
         async with AsyncSessionLocal() as session:
             from sqlalchemy import select as sa_select
 
@@ -312,13 +321,6 @@ async def _capture_once():
             await _registrar_inicio_tecnicos(datos, now)
         except Exception as inicio_exc:
             logger.warning("[Inicio] Error en registro: %s", inicio_exc)
-
-        # ── Procesar alarmas automáticas ──────────────────────────────────────
-        try:
-            from app.services.alarma_service import procesar_alarmas
-            await procesar_alarmas(datos)
-        except Exception as alarma_exc:
-            logger.warning("[Alarma] Error en procesamiento: %s", alarma_exc)
 
         # ── Evaluar alertas fuera de la sesión de snapshot ─────────────────
         try:
