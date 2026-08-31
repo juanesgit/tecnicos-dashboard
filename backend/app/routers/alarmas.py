@@ -81,7 +81,7 @@ async def todas(cu: User = Depends(get_current_user), db: AsyncSession = Depends
 @router.get("/distribucion-retrasos")
 async def distribucion_retrasos(cu: User = Depends(get_current_user)) -> List[Dict[str, Any]]:
     """Técnicos con retraso activo desde el caché de datos operacionales (MySQL).
-    Devuelve solo los campos necesarios para la gráfica de distribución."""
+    Devuelve todos los técnicos en estados de retraso para la gráfica de distribución."""
     _check(cu)
     cached = get_cached_datos()
     if not cached:
@@ -92,15 +92,15 @@ async def distribucion_retrasos(cu: User = Depends(get_current_user)) -> List[Di
         estado = d.get("estado_actual", "")
         if estado not in ESTADOS:
             continue
-        min_ret = int(d.get("minutos_retraso") or 0)
+        # Para "Retraso en siguiente" usar minutos_retraso_siguiente
         if estado == "Retraso en siguiente":
-            min_ret = int(d.get("minutos_retraso_siguiente") or min_ret)
-        if min_ret <= 0:
-            continue
+            min_ret = max(0, int(d.get("minutos_retraso_siguiente") or 0))
+        else:
+            min_ret = max(0, int(d.get("minutos_retraso") or 0))
         result.append({
-            "tecnico":    d.get("Técnico") or d.get("técnico") or "",
-            "celula":     d.get("celula", "Sin clasificar"),
-            "microcelda": d.get("microcelda", "Sin clasificar"),
+            "tecnico":    d.get("Técnico") or "",
+            "celula":     d.get("celula") or "Sin clasificar",
+            "microcelda": d.get("microcelda") or "Sin clasificar",
             "ciudad":     d.get("ciudad_nodo") or d.get("ciudad_actual") or "",
             "actividad":  d.get("actividad_actual") or "",
             "ot":         str(d.get("ot_actual") or "").strip(),
