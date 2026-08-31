@@ -842,11 +842,430 @@ function AdherenciaTab() {
 /* ══════════════════════════════════════════════════════════════
    Componente principal Admin
 ══════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════
+   TAB — Mapa de calor de alarmas (admin)
+   Filas = células · Columnas = buckets de tiempo abierto
+══════════════════════════════════════════════════════════════ */
+const ALARM_BUCKETS = [
+  { label: '0–30 m',  max: 30,       color: '#64748b', bg: '#f1f5f9', bgHi: '#cbd5e1' },
+  { label: '30–60 m', max: 60,       color: '#ca8a04', bg: '#fefce8', bgHi: '#fde047' },
+  { label: '1–1½ h',  max: 90,       color: '#ea580c', bg: '#fff7ed', bgHi: '#fdba74' },
+  { label: '1½–2 h',  max: 120,      color: '#dc2626', bg: '#fef2f2', bgHi: '#fca5a5' },
+  { label: '>2 h',    max: Infinity, color: '#7f1d1d', bg: '#fef2f2', bgHi: '#f87171' },
+]
+
+function fmtMinAdmin(m) {
+  if (!m && m !== 0) return '—'
+  if (m < 60) return `${m}m`
+  const h = Math.floor(m / 60), r = m % 60
+  return r ? `${h}h ${r}m` : `${h}h`
+}
+
+/** Tarjetas de alarma compartidas entre bottom-sheet y modal desktop */
+function ListaAlarmasDetalle({ alarmas, b }) {
+  return (
+    <div className="space-y-2 px-4 py-3">
+      {[...alarmas].sort((a, x) => x.edadMin - a.edadMin).map((a, i) => (
+        <div key={i} className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-2 mb-1.5">
+            <span className="font-semibold text-slate-800 text-sm truncate">{a.tecnico}</span>
+            <span className="font-bold tabular-nums shrink-0 text-sm" style={{ color: b.color }}>
+              {fmtMinAdmin(a.edadMin)}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-500">
+            {a.ot         && <span><span className="text-slate-400">OT </span><span className="font-medium text-slate-700">{a.ot}</span></span>}
+            {a.microcelda && <span><span className="text-slate-400">MC </span><span className="font-medium text-slate-700">{a.microcelda}</span></span>}
+            {a.ciudad     && <span><span className="text-slate-400">Ciudad </span><span className="font-medium text-slate-700">{a.ciudad}</span></span>}
+            {a.actividad  && (
+              <span className="col-span-2 truncate" title={a.actividad}>
+                <span className="text-slate-400">Trabajo </span><span className="font-medium text-slate-700">{a.actividad}</span>
+              </span>
+            )}
+            {a.asignado_nombre && (
+              <span className="col-span-2">
+                <span className="text-slate-400">Supervisor </span><span className="font-medium text-slate-700">{a.asignado_nombre}</span>
+              </span>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ModalAlarmaDetalle({ detalle, alarmas, onClose }) {
+  const overlayRef            = useRef(null)
+  const [visible, setVisible] = useState(false)
+  const b                     = ALARM_BUCKETS[detalle.bucketIdx]
+
+  useEffect(() => { requestAnimationFrame(() => setVisible(true)) }, [])
+
+  const cerrar = () => { setVisible(false); setTimeout(onClose, 300) }
+
+  useEffect(() => {
+    const handler = e => { if (e.key === 'Escape') cerrar() }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, []) // eslint-disable-line
+
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
+
+  const handleOverlayClick = e => { if (e.target === overlayRef.current) cerrar() }
+
+  const titulo = (
+    <>
+      <h2 className="font-bold text-slate-800 text-base truncate">
+        {detalle.celula}
+        <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] font-semibold align-middle"
+          style={{ background: b.bg, color: b.color }}>
+          {b.label}
+        </span>
+      </h2>
+      <p className="text-xs text-slate-500 mt-0.5">
+        {alarmas.length} técnico{alarmas.length !== 1 ? 's' : ''} en retraso
+      </p>
+    </>
+  )
+
+  return (
+    <div
+      ref={overlayRef}
+      onClick={handleOverlayClick}
+      className={`fixed inset-0 z-50 transition-colors duration-300 ${visible ? 'bg-black/50' : 'bg-black/0'}`}
+    >
+      {/* ── MOBILE: bottom sheet ──────────────────────────────────── */}
+      <div
+        className={`sm:hidden fixed inset-x-0 bottom-0 bg-white rounded-t-2xl shadow-2xl flex flex-col
+          transition-transform duration-300 ease-out
+          ${visible ? 'translate-y-0' : 'translate-y-full'}`}
+        style={{ maxHeight: '92dvh' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Drag handle */}
+        <div className="flex justify-center pt-3 pb-1 shrink-0">
+          <div className="w-10 h-1 rounded-full bg-slate-300" />
+        </div>
+
+        {/* Header mobile */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 shrink-0">
+          <div className="min-w-0">{titulo}</div>
+          <button onClick={cerrar}
+            className="ml-3 shrink-0 w-9 h-9 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 transition-colors">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Body mobile */}
+        <div className="flex-1 overflow-y-auto overscroll-contain"
+          style={{ paddingBottom: 'calc(16px + env(safe-area-inset-bottom))' }}>
+          <ListaAlarmasDetalle alarmas={alarmas} b={b} />
+        </div>
+      </div>
+
+      {/* ── DESKTOP: modal centrado ───────────────────────────────── */}
+      <div className={`hidden sm:flex items-center justify-center h-full transition-opacity duration-200 ${visible ? 'opacity-100' : 'opacity-0'}`}>
+        <div
+          className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col"
+          onClick={e => e.stopPropagation()}
+        >
+          {/* Header desktop */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+            <div>{titulo}</div>
+            <button onClick={cerrar}
+              className="text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100 transition-colors">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Body desktop */}
+          <div className="flex-1 overflow-y-auto px-6 py-4">
+            <div className="space-y-2">
+              {[...alarmas].sort((a, x) => x.edadMin - a.edadMin).map((a, i) => (
+                <div key={i} className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <span className="font-semibold text-slate-800 text-sm truncate">{a.tecnico}</span>
+                    <span className="font-bold tabular-nums shrink-0 text-sm" style={{ color: b.color }}>
+                      {fmtMinAdmin(a.edadMin)}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-500">
+                    {a.ot         && <span><span className="text-slate-400">OT </span><span className="font-medium text-slate-700">{a.ot}</span></span>}
+                    {a.microcelda && <span><span className="text-slate-400">MC </span><span className="font-medium text-slate-700">{a.microcelda}</span></span>}
+                    {a.ciudad     && <span><span className="text-slate-400">Ciudad </span><span className="font-medium text-slate-700">{a.ciudad}</span></span>}
+                    {a.actividad  && (
+                      <span className="col-span-2 truncate" title={a.actividad}>
+                        <span className="text-slate-400">Trabajo </span><span className="font-medium text-slate-700">{a.actividad}</span>
+                      </span>
+                    )}
+                    {a.asignado_nombre && (
+                      <span className="col-span-2">
+                        <span className="text-slate-400">Supervisor </span><span className="font-medium text-slate-700">{a.asignado_nombre}</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AlarmasTab() {
+  const [alarmas,   setAlarmas]   = useState([])
+  const [loading,   setLoading]   = useState(true)
+  const [detalle,   setDetalle]   = useState(null)   // { celula, bucketIdx }
+  const [autoRef,   setAutoRef]   = useState(true)
+
+  const cargar = useCallback(async () => {
+    try {
+      const res = await api.get('/alarmas/todas')
+      setAlarmas(res.data ?? [])
+    } catch { /* silencioso */ }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => {
+    cargar()
+  }, [cargar])
+
+  useEffect(() => {
+    if (!autoRef) return
+    const id = setInterval(cargar, 30000)
+    return () => clearInterval(id)
+  }, [autoRef, cargar])
+
+  const now = Date.now()
+  const abiertas = alarmas.filter(a => a.estado === 'abierta')
+
+  // Agrupar por célula
+  const celulas = [...new Set(abiertas.map(a => a.celula))].sort()
+
+  // Matriz: celula → buckets → [alarmas]
+  const matriz = Object.fromEntries(
+    celulas.map(cel => {
+      const grupos = ALARM_BUCKETS.map(() => [])
+      abiertas.filter(a => a.celula === cel).forEach(a => {
+        const edad = Math.max(0, Math.floor((now - new Date(a.fecha_creacion).getTime()) / 60000))
+        let idx = ALARM_BUCKETS.length - 1
+        for (let i = 0; i < ALARM_BUCKETS.length; i++) {
+          if (edad < ALARM_BUCKETS[i].max) { idx = i; break }
+        }
+        grupos[idx].push({ ...a, edadMin: edad })
+      })
+      return [cel, grupos]
+    })
+  )
+
+  // Máximo por bucket para escalar intensidad
+  const maxPorBucket = ALARM_BUCKETS.map((_, i) =>
+    Math.max(1, ...celulas.map(cel => matriz[cel]?.[i]?.length ?? 0))
+  )
+
+  const detalleAlarmas = detalle ? (matriz[detalle.celula]?.[detalle.bucketIdx] ?? []) : []
+
+  if (loading) return <Spinner />
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-bold text-slate-700">Retrasos activos por célula</p>
+          <p className="text-[11px] text-slate-400">
+            {abiertas.length} alarma{abiertas.length !== 1 ? 's' : ''} abiertas · {celulas.length} célula{celulas.length !== 1 ? 's' : ''}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 text-[11px] text-slate-500 cursor-pointer select-none">
+            <input type="checkbox" checked={autoRef} onChange={e => setAutoRef(e.target.checked)}
+              className="w-3 h-3 accent-teal-600" />
+            Auto-refresh
+          </label>
+          <button onClick={cargar}
+            className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">
+            ↻ Actualizar
+          </button>
+        </div>
+      </div>
+
+      {celulas.length === 0 ? (
+        <div className="text-center py-12 text-slate-400 text-sm">✅ Sin alarmas abiertas</div>
+      ) : (
+        <>
+          {/* Leyenda de buckets */}
+          <div className="flex gap-2 flex-wrap">
+            {ALARM_BUCKETS.map((b, i) => (
+              <span key={i} className="flex items-center gap-1 text-[10px] font-medium"
+                style={{ color: b.color }}>
+                <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: b.bgHi }} />
+                {b.label}
+              </span>
+            ))}
+          </div>
+
+          {/* Tabla de calor */}
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-50">
+                  <th className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 border-b border-slate-200 whitespace-nowrap">
+                    Célula
+                  </th>
+                  {ALARM_BUCKETS.map((b, i) => (
+                    <th key={i} className="px-3 py-2 text-center text-[11px] font-semibold border-b border-slate-200 whitespace-nowrap"
+                      style={{ color: b.color }}>
+                      {b.label}
+                    </th>
+                  ))}
+                  <th className="px-3 py-2 text-center text-[11px] font-semibold text-slate-500 border-b border-slate-200">
+                    Total
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {celulas.map(cel => {
+                  const grupos = matriz[cel]
+                  const total  = grupos.reduce((s, g) => s + g.length, 0)
+                  return (
+                    <tr key={cel} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
+                      <td className="px-3 py-2 font-medium text-slate-700 whitespace-nowrap">{cel}</td>
+                      {grupos.map((tecs, i) => {
+                        const cnt   = tecs.length
+                        const b     = ALARM_BUCKETS[i]
+                        const pct   = total > 0 ? Math.round(cnt / total * 100) : 0
+                        const ratio = cnt / maxPorBucket[i]
+                        // Intensidad de fondo según ratio
+                        const bg = cnt === 0 ? 'transparent'
+                          : ratio > 0.66 ? b.bgHi
+                          : b.bg
+                        return (
+                          <td key={i} className="px-3 py-2 text-center"
+                            style={{ background: bg }}>
+                            {cnt > 0 ? (
+                              <button
+                                onClick={() => setDetalle({ celula: cel, bucketIdx: i })}
+                                className="flex flex-col items-center gap-0 w-full focus:outline-none"
+                              >
+                                <span className="font-bold text-[13px]" style={{ color: b.color }}>{cnt}</span>
+                                <span className="text-[9px] opacity-60" style={{ color: b.color }}>{pct}%</span>
+                              </button>
+                            ) : (
+                              <span className="text-slate-200">—</span>
+                            )}
+                          </td>
+                        )
+                      })}
+                      <td className="px-3 py-2 text-center font-semibold text-slate-600">{total}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Modal de detalle — centrado, sin scroll de página */}
+          {detalle && detalleAlarmas.length > 0 && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center p-4"
+              style={{ background: 'rgba(15,23,42,0.45)' }}
+              onClick={() => setDetalle(null)}
+            >
+              <div
+                className="bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col"
+                style={{ maxHeight: '80vh' }}
+                onClick={e => e.stopPropagation()}
+              >
+                {/* Header del modal */}
+                <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-slate-100">
+                  <div>
+                    <p className="text-sm font-bold text-slate-800">
+                      {detalle.celula}
+                      <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                        style={{ background: ALARM_BUCKETS[detalle.bucketIdx].bg, color: ALARM_BUCKETS[detalle.bucketIdx].color }}>
+                        {ALARM_BUCKETS[detalle.bucketIdx].label}
+                      </span>
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      {detalleAlarmas.length} técnico{detalleAlarmas.length !== 1 ? 's' : ''} en retraso
+                    </p>
+                  </div>
+                  <button onClick={() => setDetalle(null)}
+                    className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 text-base transition-colors">
+                    ×
+                  </button>
+                </div>
+
+                {/* Lista scrollable dentro del modal */}
+                <div className="overflow-y-auto px-4 py-3 space-y-2">
+                  {detalleAlarmas
+                    .sort((a, b) => b.edadMin - a.edadMin)
+                    .map((a, i) => (
+                      <div key={i} className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5 text-[11px]">
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                          <span className="font-semibold text-slate-800 truncate">{a.tecnico}</span>
+                          <span className="font-bold tabular-nums shrink-0 text-[12px]"
+                            style={{ color: ALARM_BUCKETS[detalle.bucketIdx].color }}>
+                            {fmtMinAdmin(a.edadMin)}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
+                          {a.ot && (
+                            <span><span className="text-slate-400">OT </span><span className="font-medium text-slate-600">{a.ot}</span></span>
+                          )}
+                          {a.microcelda && (
+                            <span><span className="text-slate-400">MC </span><span className="font-medium text-slate-600">{a.microcelda}</span></span>
+                          )}
+                          {a.ciudad && (
+                            <span><span className="text-slate-400">Ciudad </span><span className="font-medium text-slate-600">{a.ciudad}</span></span>
+                          )}
+                          {a.actividad && (
+                            <span className="col-span-2 truncate" title={a.actividad}>
+                              <span className="text-slate-400">Trabajo </span><span className="font-medium text-slate-600">{a.actividad}</span>
+                            </span>
+                          )}
+                          {a.asignado_nombre && (
+                            <span className="col-span-2">
+                              <span className="text-slate-400">Supervisor </span><span className="font-medium text-slate-600">{a.asignado_nombre}</span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+
+                {/* Footer */}
+                <div className="px-4 py-3 border-t border-slate-100">
+                  <button onClick={() => setDetalle(null)}
+                    className="w-full py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold transition-colors">
+                    Cerrar
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function Admin() {
   const [subTab, setSubTab] = useState('monitor')
 
   const TABS = [
     { id: 'monitor',    icon: '📊', label: 'Monitor'    },
+    { id: 'alarmas',    icon: '🚨', label: 'Alarmas'    },
     { id: 'zonas',      icon: '🗺️',  label: 'Zonas'      },
     { id: 'excel',      icon: '📁',  label: 'Excel'      },
     { id: 'usuarios',   icon: '👥',  label: 'Usuarios'   },
@@ -873,6 +1292,7 @@ export default function Admin() {
 
       {/* Contenido */}
       {subTab === 'monitor'    && <MonitorTab />}
+      {subTab === 'alarmas'    && <AlarmasTab />}
       {subTab === 'zonas'      && <ZonasTab />}
       {subTab === 'excel'      && <ExcelTab />}
       {subTab === 'usuarios'   && <Usuarios />}

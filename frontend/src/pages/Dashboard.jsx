@@ -433,6 +433,16 @@ export default function Dashboard() {
 
   return (
     <>
+      {/* Alarmas fuera del wrapper — ocupa ancho completo y gestiona sus propios filtros */}
+      {activeTab === 'alarmas' && (
+        <Alarmas
+          filtros={filtros}
+          setFiltros={setFiltros}
+          hasScopedRole={hasScopedRole}
+        />
+      )}
+
+      {activeTab !== 'alarmas' && (
       <div className="max-w-4xl mx-auto px-3 py-3 space-y-3">
 
         {/* ── Barra superior — oculta en la sección de usuarios ── */}
@@ -590,11 +600,10 @@ export default function Dashboard() {
 
         {activeTab === 'usuarios' && <Usuarios />}
 
-        {activeTab === 'alarmas' && <Alarmas />}
-
         {activeTab === 'snapshots' && user?.role === 'admin' && <Admin />}
 
       </div>
+      )} {/* fin activeTab !== 'alarmas' */}
 
       <BottomNav
         activeTab={activeTab}

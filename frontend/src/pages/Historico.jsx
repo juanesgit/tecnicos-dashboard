@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip,
@@ -23,6 +23,129 @@ const COLORES_CELULA = [
   '#7c3aed', '#0891b2', '#dc2626', '#d97706',
   '#16a34a', '#db2777', '#ea580c', '#4f46e5',
 ]
+
+// ── Gráfica distribución de retrasos por antigüedad de alarma ────────────────
+const DIST_BUCKETS = [
+  { label: '0–30 m',  max: 30,       color: '#64748b', light: '#f1f5f9' },
+  { label: '30–60 m', max: 60,       color: '#ca8a04', light: '#fefce8' },
+  { label: '1–1½ h',  max: 90,       color: '#ea580c', light: '#fff7ed' },
+  { label: '1½–2 h',  max: 120,      color: '#dc2626', light: '#fef2f2' },
+  { label: '>2 h',    max: Infinity, color: '#7f1d1d', light: '#fef2f2' },
+]
+
+function fmtMinDist(m) {
+  if (!m && m !== 0) return '—'
+  if (m < 60) return `${m}m`
+  const h = Math.floor(m / 60), r = m % 60
+  return r ? `${h}h ${r}m` : `${h}h`
+}
+
+function GraficaDistribucion({ alarmas }) {
+  const [tooltip, setTooltip] = useState(null)
+  const now = Date.now()
+
+  const abiertas = (alarmas || []).filter(a => a.estado === 'abierta')
+  if (abiertas.length === 0) return null
+
+  const grupos = DIST_BUCKETS.map(() => [])
+  abiertas.forEach(a => {
+    const edad = Math.max(0, Math.floor((now - new Date(a.fecha_creacion).getTime()) / 60000))
+    let idx = DIST_BUCKETS.length - 1
+    for (let i = 0; i < DIST_BUCKETS.length; i++) {
+      if (edad < DIST_BUCKETS[i].max) { idx = i; break }
+    }
+    grupos[idx].push({ ...a, edadMin: edad })
+  })
+
+  const total  = abiertas.length
+  const maxCnt = Math.max(1, ...grupos.map(g => g.length))
+  const W = 320, H = 112, PAD_L = 28, PAD_R = 8, PAD_T = 22, PAD_B = 28
+  const plotW = W - PAD_L - PAD_R
+  const plotH = H - PAD_T - PAD_B
+  const barW  = Math.floor(plotW / DIST_BUCKETS.length)
+  const gap   = Math.max(4, Math.floor(barW * 0.18))
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-100 px-4 pt-3 pb-2">
+      <p className="text-xs font-semibold text-slate-600 mb-2">
+        Distribución de alarmas por tiempo abierto — {abiertas.length} abierta{abiertas.length !== 1 ? 's' : ''} ahora
+      </p>
+      <div className="relative overflow-visible" style={{ userSelect: 'none' }}>
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          className="w-full"
+          style={{ maxHeight: 120 }}
+          onMouseLeave={() => setTooltip(null)}
+        >
+          {[0.25, 0.5, 0.75, 1].map(pct => {
+            const y   = PAD_T + plotH * (1 - pct)
+            const cnt = Math.round(maxCnt * pct)
+            return (
+              <g key={pct}>
+                <line x1={PAD_L} x2={W - PAD_R} y1={y} y2={y} stroke="#e2e8f0" strokeWidth="0.5" />
+                <text x={PAD_L - 3} y={y + 3.5} textAnchor="end" fontSize="7" fill="#94a3b8">{cnt}</text>
+              </g>
+            )
+          })}
+          {DIST_BUCKETS.map((b, i) => {
+            const cnt  = grupos[i].length
+            const pct  = total > 0 ? Math.round(cnt / total * 100) : 0
+            const barH = cnt === 0 ? 2 : Math.max(4, Math.round((cnt / maxCnt) * plotH))
+            const x    = PAD_L + i * barW + gap / 2
+            const y    = PAD_T + plotH - barH
+            const w    = barW - gap
+            return (
+              <g key={i}
+                onMouseEnter={() => setTooltip({ idx: i, svgX: x + w / 2 })}
+                style={{ cursor: cnt > 0 ? 'pointer' : 'default' }}
+              >
+                <rect x={x} y={PAD_T} width={w} height={plotH} fill="transparent" />
+                <rect x={x} y={y} width={w} height={barH} fill={b.color} rx="2"
+                  opacity={tooltip?.idx === i ? 1 : 0.82} />
+                {cnt > 0 && (
+                  <>
+                    <text x={x + w / 2} y={y - 10} textAnchor="middle"
+                      fontSize="8" fontWeight="700" fill={b.color}>{cnt}</text>
+                    <text x={x + w / 2} y={y - 2} textAnchor="middle"
+                      fontSize="6.5" fill={b.color} opacity="0.75">{pct}%</text>
+                  </>
+                )}
+                <text x={x + w / 2} y={H - 2} textAnchor="middle"
+                  fontSize="6.5" fill="#94a3b8">{b.label}</text>
+              </g>
+            )
+          })}
+        </svg>
+        {tooltip !== null && grupos[tooltip.idx].length > 0 && (() => {
+          const b    = DIST_BUCKETS[tooltip.idx]
+          const tecs = grupos[tooltip.idx]
+          const pct  = total > 0 ? Math.round(tecs.length / total * 100) : 0
+          return (
+            <div
+              className="absolute z-30 rounded-lg shadow-lg border border-slate-200 p-2.5 min-w-[160px] max-w-[220px] pointer-events-none"
+              style={{ background: b.light, left: `${(tooltip.svgX / W) * 100}%`, top: 0, transform: 'translate(-50%, 8px)' }}
+            >
+              <p className="text-[10px] font-bold mb-0.5" style={{ color: b.color }}>
+                {b.label}
+              </p>
+              <p className="text-[10px] text-slate-500 mb-1">
+                {tecs.length} técnico{tecs.length !== 1 ? 's' : ''} · <span style={{ color: b.color }} className="font-semibold">{pct}% del total</span>
+              </p>
+              <ul className="space-y-0.5">
+                {tecs.slice(0, 8).map((t, i) => (
+                  <li key={i} className="text-[10px] text-slate-700 truncate">
+                    {t.tecnico} <span className="text-slate-400">({fmtMinDist(t.edadMin)})</span>
+                  </li>
+                ))}
+                {tecs.length > 8 && <li className="text-[10px] text-slate-400">+{tecs.length - 8} más…</li>}
+              </ul>
+            </div>
+          )
+        })()}
+      </div>
+    </div>
+  )
+}
 
 function Skeleton() {
   return (
@@ -86,7 +209,7 @@ export default function Historico({
   onDetalle: onDetalleProp,
   showMapa = true,
 }) {
-  useAuth() // mantiene sesión activa
+  const { user } = useAuth()
   const [detalleTecnico, setDetalleTecnico] = useState(null)
   const handleDetalle = onDetalleProp ?? setDetalleTecnico
   const [horas,    setHoras]    = useState(8)
@@ -95,9 +218,28 @@ export default function Historico({
   const [celulas,  setCelulas]  = useState(null)
   const [mcSeries, setMcSeries] = useState(null)   // { microcelda: [{t, con_retraso, ...}] }
   const [loading,  setLoading]  = useState(false)
+  const [alarmas,  setAlarmas]  = useState([])
+
+  // Fetch de alarmas abiertas para la gráfica de distribución
+  const isAdmin = user?.role === 'admin'
+  const fetchAlarmas = useCallback(async () => {
+    try {
+      const ep = isAdmin ? '/alarmas/todas' : '/alarmas/mis'
+      const res = await api.get(ep)
+      setAlarmas(res.data ?? [])
+    } catch { /* silencioso — la gráfica no aparece si falla */ }
+  }, [isAdmin])
+
+  useEffect(() => {
+    fetchAlarmas()
+    const id = setInterval(fetchAlarmas, 30000)
+    return () => clearInterval(id)
+  }, [fetchAlarmas])
 
   // Determinar si estamos en scope de microcelda(s)
   const hasMicroScope = microceldas.length > 0
+  // needsMcData: true si el rol asigna microceldas O si el filtro global seleccionó una
+  const needsMcData = hasMicroScope || !!microceldaFiltro
 
   useEffect(() => {
     let cancelled = false
@@ -111,8 +253,8 @@ export default function Historico({
           api.get('/historico/ultimo'),
           api.get(`/historico/celulas?horas=${horas}${celulaParam}`),
         ]
-        // Si hay scope de microcelda(s), también traer la serie por microcelda
-        if (hasMicroScope) {
+        // Traer serie por microcelda si hay scope de rol O filtro global de microcelda
+        if (needsMcData) {
           promises.push(api.get(`/historico/microceldas?horas=${horas}${celulaParam}`))
         }
 
@@ -121,7 +263,7 @@ export default function Historico({
           setGlobal(results[0].data.puntos ?? [])
           setUltimo(results[1].data)
           setCelulas(results[2].data.series ?? {})
-          setMcSeries(hasMicroScope ? (results[3].data.series ?? {}) : null)
+          setMcSeries(needsMcData ? (results[3].data.series ?? {}) : null)
         }
       } catch (err) {
         if (!cancelled) toast.error(err.response?.data?.detail || 'Error al cargar histórico')
@@ -131,7 +273,7 @@ export default function Historico({
     }
     fetchData()
     return () => { cancelled = true }
-  }, [horas, celulaFiltro, hasMicroScope]) // eslint-disable-line
+  }, [horas, celulaFiltro, hasMicroScope, microceldaFiltro]) // eslint-disable-line
 
   // ── Serie de línea principal ───────────────────────────────────────────────
   const serieLinea = (() => {
@@ -167,6 +309,11 @@ export default function Historico({
       })
     }
 
+    // Filtro global de microcelda (admin selecciona desde el selector)
+    if (microceldaFiltro && mcSeries?.[microceldaFiltro]) {
+      return mcSeries[microceldaFiltro]
+    }
+
     // Scope de célula (lider_celula o filtro manual)
     if (celulaFiltro) return celulas?.[celulaFiltro] ?? []
 
@@ -192,6 +339,13 @@ export default function Historico({
         .sort((a, b) => b.con_retraso - a.con_retraso)
     }
 
+    // Filtro global de microcelda: barra del último punto de esa microcelda
+    if (microceldaFiltro && mcSeries?.[microceldaFiltro]?.length) {
+      const pts  = mcSeries[microceldaFiltro]
+      const last = pts[pts.length - 1]
+      return [{ celula: microceldaFiltro, con_retraso: last?.con_retraso ?? 0, con_parada: last?.con_parada ?? 0 }]
+    }
+
     if (!ultimo?.celulas) return []
     let list = [...ultimo.celulas]
     if (celulaFiltro) list = list.filter(c => c.celula === celulaFiltro)
@@ -203,21 +357,17 @@ export default function Historico({
   // - célula filtrada   → snapshot de esa célula desde la API
   // - sin filtro        → snapshot global de la API
   const snap = (() => {
-    if (microceldaFiltro && rows?.length) {
-      const total        = rows.length
-      const con_retraso  = rows.filter(r => r.estado_actual === 'Retraso actual').length
-      const con_parada   = rows.filter(r => r.estado_siguiente === 'Parada futura').length
-      const cumplVals    = rows.map(r => Number(r.cumplimiento_time_slot_dia) || 0)
-      const cumplimiento_pct = cumplVals.length
-        ? Math.round(cumplVals.reduce((a, b) => a + b, 0) / cumplVals.length)
-        : 0
+    // Filtro global de microcelda: KPI desde el último punto de la serie
+    if (microceldaFiltro && mcSeries?.[microceldaFiltro]?.length) {
+      const pts  = mcSeries[microceldaFiltro]
+      const last = pts[pts.length - 1]
       return {
-        total,
-        con_retraso,
-        pct_retraso: total ? parseFloat((con_retraso / total * 100).toFixed(1)) : 0,
-        con_parada,
-        cumplimiento_pct,
-        captured_at: null,
+        total:            last?.total            ?? 0,
+        con_retraso:      last?.con_retraso      ?? 0,
+        pct_retraso:      last?.total ? parseFloat(((last.con_retraso / last.total) * 100).toFixed(1)) : 0,
+        con_parada:       last?.con_parada       ?? 0,
+        cumplimiento_pct: last?.cumplimiento_pct ?? 0,
+        captured_at:      last?.t ?? null,
       }
     }
     if (celulaFiltro) return ultimo?.celulas?.find(c => c.celula === celulaFiltro) ?? null
@@ -227,7 +377,7 @@ export default function Historico({
   // Etiqueta de scope para los títulos
   const scopeLabel = hasMicroScope
     ? (microceldas.length === 1 ? microceldas[0] : `${microceldas.length} microceldas`)
-    : celulaFiltro || ''
+    : microceldaFiltro || celulaFiltro || ''
 
   // ── Tendencias: comparar primer vs último punto de serieLinea ─────────────
   const calcTrend = (key) => {
@@ -300,6 +450,13 @@ export default function Historico({
               Aún no hay snapshots. El sistema captura datos cada 5 minutos — vuelve en unos momentos.
             </div>
           )}
+
+          {/* Distribución de alarmas por tiempo abierto — filtrada por filtros globales */}
+          <GraficaDistribucion alarmas={alarmas.filter(a => {
+            if (celulaFiltro     && a.celula     !== celulaFiltro)     return false
+            if (microceldaFiltro && a.microcelda !== microceldaFiltro) return false
+            return true
+          })} />
 
           {/* Línea: evolución de retrasos */}
           {serieLinea.length > 0 && (

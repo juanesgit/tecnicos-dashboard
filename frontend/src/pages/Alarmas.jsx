@@ -4,18 +4,17 @@ import useAuthStore from '../hooks/useAuth'
 const API = '/api'
 
 const NIVEL_CFG = {
-  leve:     { label: 'Leve',     bg: 'bg-yellow-50',  border: 'border-yellow-400', badge: 'bg-yellow-100 text-yellow-800', icon: '⚠️' },
-  moderada: { label: 'Moderada', bg: 'bg-orange-50',  border: 'border-orange-400', badge: 'bg-orange-100 text-orange-800', icon: '🔶' },
-  critica:  { label: 'Crítica',  bg: 'bg-red-50',     border: 'border-red-500',    badge: 'bg-red-100 text-red-800',       icon: '🚨' },
+  leve:     { label: 'Leve',     border: 'border-l-yellow-400', bg: 'bg-yellow-50',  badge: 'bg-yellow-100 text-yellow-800', dot: 'bg-yellow-400', icon: '⚠️' },
+  moderada: { label: 'Moderada', border: 'border-l-orange-400', bg: 'bg-orange-50',  badge: 'bg-orange-100 text-orange-800', dot: 'bg-orange-400', icon: '🔶' },
+  critica:  { label: 'Crítica',  border: 'border-l-red-500',    bg: 'bg-red-50',     badge: 'bg-red-100 text-red-800',       dot: 'bg-red-500',    icon: '🚨' },
 }
 const SLA_MIN = { leve: 45, moderada: 20, critica: 10 }
-const ORDEN   = { critica: 0, moderada: 1, leve: 2 }
 
 function useTiempo(fechaCreacion) {
   const [min, setMin] = useState(0)
   useEffect(() => {
     if (!fechaCreacion) return
-    const calc = () => setMin(Math.max(0, Math.floor((Date.now() - new Date(fechaCreacion + 'Z').getTime()) / 60000)))
+    const calc = () => setMin(Math.max(0, Math.floor((Date.now() - new Date(fechaCreacion).getTime()) / 60000)))
     calc()
     const id = setInterval(calc, 30000)
     return () => clearInterval(id)
@@ -30,111 +29,176 @@ function fmtMin(m) {
   return r ? `${h}h ${r}m` : `${h}h`
 }
 
-function SlaBar({ nivel, fechaCreacion, estado }) {
+// ── Barra SLA compacta ────────────────────────────────────────────────────────
+function SlaInline({ nivel, fechaCreacion, estado }) {
   const transcurrido = useTiempo(fechaCreacion)
   if (estado === 'cerrada') return null
-  const sla = SLA_MIN[nivel] || 45
-  const pct = Math.min(100, Math.round((transcurrido / sla) * 100))
+  const sla     = SLA_MIN[nivel] || 45
+  const pct     = Math.min(100, Math.round((transcurrido / sla) * 100))
   const vencido = pct >= 100
   return (
-    <div className="mt-2">
-      <div className="flex justify-between text-[11px] text-gray-500 mb-1">
-        <span>SLA: {fmtMin(sla)}</span>
-        <span className={vencido ? 'text-red-600 font-bold' : ''}>
-          {vencido ? `⏰ Vencido (+${fmtMin(transcurrido - sla)})` : `${fmtMin(transcurrido)} transcurrido`}
-        </span>
+    <div className="flex items-center gap-1.5 shrink-0">
+      <div className="w-16 h-1.5 rounded-full bg-gray-200 overflow-hidden">
+        <div
+          className={`h-full rounded-full ${vencido ? 'bg-red-500' : pct > 75 ? 'bg-orange-400' : 'bg-green-400'}`}
+          style={{ width: `${pct}%` }}
+        />
       </div>
-      <div className="h-1.5 rounded-full bg-gray-200 overflow-hidden">
-        <div className={`h-full rounded-full transition-all ${vencido ? 'bg-red-500' : pct > 75 ? 'bg-orange-400' : 'bg-green-400'}`} style={{ width: `${pct}%` }} />
-      </div>
+      <span className={`text-[11px] font-medium tabular-nums ${vencido ? 'text-red-600' : 'text-gray-500'}`}>
+        {vencido ? `+${fmtMin(transcurrido - sla)}` : fmtMin(transcurrido)}
+      </span>
     </div>
   )
 }
 
-function AlarmaCard({ alarma, onNota, onCerrar }) {
-  const [abierto, setAbierto]       = useState(false)
-  const [editNota, setEditNota]     = useState(false)
-  const [notaTxt, setNotaTxt]       = useState(alarma.notas || '')
+// ── Fila de alarma ────────────────────────────────────────────────────────────
+function AlarmaRow({ alarma, expandido, onToggle, onNota, onCerrar }) {
+  const [editNota, setEditNota] = useState(false)
+  const [notaTxt, setNotaTxt]   = useState(alarma.notas || '')
   const cfg = NIVEL_CFG[alarma.nivel] || NIVEL_CFG.leve
   const transcurrido = useTiempo(alarma.fecha_creacion)
+  const esCerrada = alarma.estado === 'cerrada'
 
   const guardar = async () => { await onNota(alarma.id, notaTxt); setEditNota(false) }
 
   return (
-    <div className={`rounded-xl border-l-4 ${cfg.border} ${cfg.bg} p-3 shadow-sm`}>
-      <div className="flex items-start justify-between gap-2">
+    <div className={`border-b border-gray-100 last:border-0 ${expandido ? cfg.bg : 'bg-white hover:bg-slate-50'} transition-colors`}>
+      <button
+        type="button"
+        onClick={onToggle}
+        style={{ WebkitTapHighlightColor: 'transparent' }}
+        className={`w-full flex items-center gap-3 px-4 py-3 border-l-4 ${cfg.border} text-left`}
+      >
+        <span className="text-base shrink-0">{cfg.icon}</span>
+
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span>{cfg.icon}</span>
-            <span className="font-semibold text-gray-900 text-sm truncate">{alarma.tecnico}</span>
-            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${cfg.badge}`}>{cfg.label.toUpperCase()}</span>
-            {alarma.estado === 'cerrada' && (
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-600">CERRADA</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold text-sm text-gray-900 truncate">{alarma.tecnico}</span>
+            {esCerrada && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-500">CERRADA</span>
             )}
           </div>
-          <div className="text-xs text-gray-500 mt-0.5">
+          <div className="text-xs text-gray-400 truncate">
             {alarma.celula} › {alarma.microcelda}
-            {alarma.ciudad && alarma.ciudad !== 'Sin clasificar' && (
-              <span className="ml-1 text-gray-400">· {alarma.ciudad}</span>
-            )}
+            {alarma.ciudad && alarma.ciudad !== 'Sin clasificar' && ` · ${alarma.ciudad}`}
           </div>
-          {alarma.tipo_retraso && (
-            <div className="text-xs text-gray-500 mt-0.5">
-              <span className="font-medium">{alarma.tipo_retraso}</span>
-              {alarma.minutos_retraso_inicio > 0 && (
-                <span className="ml-1 text-gray-400">· {fmtMin(alarma.minutos_retraso_inicio)} al crear</span>
-              )}
-            </div>
+        </div>
+
+        {/* Info extra desktop */}
+        <div className="hidden md:flex flex-col items-end shrink-0 min-w-[160px]">
+          {alarma.actividad && (
+            <span className="text-[11px] text-gray-400 truncate max-w-[160px]" title={alarma.actividad}>📋 {alarma.actividad}</span>
           )}
-          {alarma.estado === 'abierta' && (
-            <div className="text-xs text-gray-500 mt-0.5">
-              Hace {fmtMin(transcurrido)} · Asig: <strong>{alarma.asignado_nombre}</strong>
-            </div>
+          {alarma.ot && (
+            <span className="text-[11px] font-mono text-gray-400">OT: {alarma.ot}</span>
           )}
-          {alarma.estado === 'cerrada' && (
-            <div className="text-xs text-gray-400 mt-0.5">
-              Resuelta en {fmtMin(alarma.tiempo_resolucion_min)} ·{' '}
-              {alarma.sla_cumplido
-                ? <span className="text-green-600 font-medium">✓ SLA ok</span>
-                : <span className="text-red-500 font-medium">✗ SLA vencido</span>}
-            </div>
+          {!esCerrada && alarma.asignado_nombre && (
+            <span className="text-[11px] text-gray-400 truncate max-w-[160px]">👤 {alarma.asignado_nombre}</span>
           )}
         </div>
-        <button onClick={() => setAbierto(e => !e)} className="text-gray-400 hover:text-gray-700 p-1 rounded-lg shrink-0">
-          <svg className={`w-4 h-4 transition-transform ${abierto ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-      </div>
 
-      <SlaBar nivel={alarma.nivel} fechaCreacion={alarma.fecha_creacion} estado={alarma.estado} />
+        {!esCerrada
+          ? <SlaInline nivel={alarma.nivel} fechaCreacion={alarma.fecha_creacion} estado={alarma.estado} />
+          : <span className="text-[11px] shrink-0">
+              {alarma.sla_cumplido
+                ? <span className="text-green-600 font-medium">✓ SLA</span>
+                : <span className="text-red-500 font-medium">✗ SLA</span>}
+            </span>
+        }
 
-      {abierto && (
-        <div className="mt-3 pt-3 border-t border-black/10 space-y-3">
+        <svg
+          className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${expandido ? 'rotate-180' : ''}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {expandido && (
+        <div className="px-4 pb-4 space-y-3 border-l-4 border-l-transparent">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600 pt-1">
+            <>
+              <span className="text-gray-400">Creada</span>
+              <span>{new Date(alarma.fecha_creacion).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })}</span>
+            </>
+            {alarma.tipo_retraso && (
+              <>
+                <span className="text-gray-400">Tipo retraso</span>
+                <span>{alarma.tipo_retraso}{alarma.minutos_retraso_inicio > 0 && ` · ${fmtMin(alarma.minutos_retraso_inicio)} al crear`}</span>
+              </>
+            )}
+            {alarma.actividad && (
+              <>
+                <span className="text-gray-400">Actividad</span>
+                <span className="truncate" title={alarma.actividad}>{alarma.actividad}</span>
+              </>
+            )}
+            {alarma.ot && (
+              <>
+                <span className="text-gray-400">OT</span>
+                <span className="font-mono">{alarma.ot}</span>
+              </>
+            )}
+            {!esCerrada && (
+              <>
+                <span className="text-gray-400">Asignado a</span>
+                <span className="font-medium">{alarma.asignado_nombre}</span>
+              </>
+            )}
+            {!esCerrada && (
+              <>
+                <span className="text-gray-400">Abierta hace</span>
+                <span>{fmtMin(transcurrido)}</span>
+              </>
+            )}
+            {esCerrada && alarma.fecha_cierre && (
+              <>
+                <span className="text-gray-400">Cerrada</span>
+                <span>{new Date(alarma.fecha_cierre).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })}</span>
+              </>
+            )}
+            {esCerrada && (
+              <>
+                <span className="text-gray-400">Resolución</span>
+                <span>{fmtMin(alarma.tiempo_resolucion_min)}</span>
+              </>
+            )}
+            <span className="text-gray-400">SLA</span>
+            <span>{fmtMin(SLA_MIN[alarma.nivel])}</span>
+          </div>
+
           <div>
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs font-medium text-gray-600">Documentación</span>
-              {alarma.estado === 'abierta' && !editNota && (
-                <button onClick={() => setEditNota(true)} className="text-xs text-indigo-600 hover:underline">
+              {!esCerrada && !editNota && (
+                <button type="button" onClick={() => setEditNota(true)} className="text-xs text-indigo-600 hover:underline">
                   {alarma.notas ? 'Editar' : '+ Agregar nota'}
                 </button>
               )}
             </div>
             {editNota ? (
               <div className="space-y-2">
-                <textarea className="w-full text-xs border border-gray-300 rounded-lg p-2 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300" rows={3}
-                  value={notaTxt} onChange={e => setNotaTxt(e.target.value)} placeholder="Motivo del retraso y acciones tomadas..." />
+                <textarea
+                  className="w-full text-xs border border-gray-300 rounded-lg p-2 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                  rows={3} value={notaTxt} onChange={e => setNotaTxt(e.target.value)}
+                  placeholder="Motivo del retraso y acciones tomadas..."
+                />
                 <div className="flex gap-2">
-                  <button onClick={guardar} className="flex-1 text-xs bg-indigo-600 text-white rounded-lg py-1.5 font-medium hover:bg-indigo-700">Guardar</button>
-                  <button onClick={() => { setEditNota(false); setNotaTxt(alarma.notas || '') }} className="flex-1 text-xs bg-gray-200 text-gray-700 rounded-lg py-1.5">Cancelar</button>
+                  <button type="button" onClick={guardar} className="flex-1 text-xs bg-indigo-600 text-white rounded-lg py-1.5 font-medium hover:bg-indigo-700">Guardar</button>
+                  <button type="button" onClick={() => { setEditNota(false); setNotaTxt(alarma.notas || '') }} className="flex-1 text-xs bg-gray-200 text-gray-700 rounded-lg py-1.5">Cancelar</button>
                 </div>
               </div>
             ) : (
-              <p className="text-xs text-gray-600 italic">{alarma.notas || 'Sin documentación aún.'}</p>
+              <p className="text-xs text-gray-500 italic">{alarma.notas || 'Sin documentación aún.'}</p>
             )}
           </div>
-          {alarma.estado === 'abierta' && (
-            <button onClick={() => onCerrar(alarma.id, alarma.notas)} className="w-full text-xs bg-gray-800 text-white rounded-lg py-2 font-medium hover:bg-gray-900">
+
+          {!esCerrada && (
+            <button
+              type="button"
+              onClick={() => onCerrar(alarma.id, alarma.notas)}
+              className="w-full text-xs bg-gray-800 text-white rounded-lg py-2 font-medium hover:bg-gray-900"
+            >
               Cerrar alarma manualmente
             </button>
           )}
@@ -144,90 +208,423 @@ function AlarmaCard({ alarma, onNota, onCerrar }) {
   )
 }
 
-export default function Alarmas() {
+// ── Tab button ────────────────────────────────────────────────────────────────
+function Tab({ active, onClick, color, children }) {
+  const activeColors = {
+    todas:    'bg-gray-800 text-white',
+    critica:  'bg-red-600 text-white',
+    moderada: 'bg-orange-500 text-white',
+    leve:     'bg-yellow-500 text-white',
+    cerradas: 'bg-gray-500 text-white',
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{ WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }}
+      className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap select-none ${
+        active ? (activeColors[color] || 'bg-gray-800 text-white') : 'bg-slate-100 text-gray-600 hover:bg-slate-200'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
+// ── Panel de filtros inline ───────────────────────────────────────────────────
+function PanelFiltros({ filtros, setFiltros, celulaOpts, microceldaOpts, onClose }) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Filtros</span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-slate-400 hover:text-slate-600 text-sm leading-none"
+        >✕</button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {/* Célula */}
+        <select
+          value={filtros.celula || ''}
+          onChange={e => setFiltros(f => ({ ...f, celula: e.target.value, microcelda: '' }))}
+          className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+        >
+          <option value="">Todas las células</option>
+          {celulaOpts.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+
+        {/* Microcelda */}
+        <select
+          value={filtros.microcelda || ''}
+          onChange={e => setFiltros(f => ({ ...f, microcelda: e.target.value }))}
+          disabled={!filtros.celula}
+          className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-40"
+        >
+          <option value="">Todas las microceldas</option>
+          {microceldaOpts.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+
+        {/* Técnico */}
+        <input
+          type="text"
+          value={filtros.tecnico || ''}
+          onChange={e => setFiltros(f => ({ ...f, tecnico: e.target.value }))}
+          placeholder="Buscar técnico..."
+          className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 min-w-[130px] focus:outline-none focus:ring-2 focus:ring-indigo-300"
+        />
+
+        {/* Limpiar */}
+        <button
+          type="button"
+          onClick={() => { setFiltros(f => ({ ...f, celula: '', microcelda: '', tecnico: '' })); onClose() }}
+          className="text-xs text-red-600 hover:text-red-800 font-medium px-2 py-1.5"
+        >
+          Limpiar
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Panel de distribución por supervisor (admin) ───────────────────────────────
+function DistribucionSupervisores({ abiertas, supFiltro, onSelect }) {
+  const grupos = {}
+  for (const a of abiertas) {
+    const nombre = a.asignado_nombre || 'Sin asignar'
+    if (!grupos[nombre]) grupos[nombre] = { critica: 0, moderada: 0, leve: 0, total: 0 }
+    grupos[nombre][a.nivel] = (grupos[nombre][a.nivel] || 0) + 1
+    grupos[nombre].total++
+  }
+  const supervisores = Object.entries(grupos).sort((a, b) => b[1].total - a[1].total)
+  if (supervisores.length === 0) return null
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden mb-4">
+      <div className="px-4 py-2.5 bg-slate-50 border-b border-gray-100 flex items-center justify-between">
+        <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Distribución por supervisor</span>
+        {supFiltro && (
+          <button type="button" onClick={() => onSelect(null)} className="text-xs text-indigo-600 hover:underline">Ver todos</button>
+        )}
+      </div>
+      <div className="divide-y divide-gray-50">
+        {supervisores.map(([nombre, cnt]) => {
+          const activo = supFiltro === nombre
+          return (
+            <button
+              key={nombre}
+              type="button"
+              onClick={() => onSelect(activo ? null : nombre)}
+              className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${activo ? 'bg-indigo-50' : 'hover:bg-slate-50'}`}
+            >
+              <span className="text-sm text-gray-700 flex-1 font-medium truncate">
+                {activo ? '▶ ' : ''}{nombre}
+              </span>
+              <div className="flex items-center gap-2 shrink-0">
+                {cnt.critica > 0 && (
+                  <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">
+                    🚨 {cnt.critica}
+                  </span>
+                )}
+                {cnt.moderada > 0 && (
+                  <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700">
+                    🔶 {cnt.moderada}
+                  </span>
+                )}
+                {cnt.leve > 0 && (
+                  <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-yellow-100 text-yellow-700">
+                    ⚠️ {cnt.leve}
+                  </span>
+                )}
+                <span className="text-xs font-bold text-gray-500 w-6 text-right">{cnt.total}</span>
+              </div>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── Página principal ──────────────────────────────────────────────────────────
+export default function Alarmas({ filtros = {}, setFiltros, hasScopedRole = false }) {
   const token   = useAuthStore(s => s.token)
   const user    = useAuthStore(s => s.user)
   const isAdmin = user?.role === 'admin'
 
-  const [alarmas, setAlarmas] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState(null)
-  const [filtro,  setFiltro]  = useState('abiertas')
+  const [alarmas,     setAlarmas]     = useState([])
+  const [loading,     setLoading]     = useState(true)
+  const [error,       setError]       = useState(null)
+  const [nivelTab,    setNivelTab]    = useState('todas')
+  const [supFiltro,   setSupFiltro]   = useState(null)
+  const [expandidoId, setExpandidoId] = useState(null)
+  const [filtrosOpen, setFiltrosOpen] = useState(false)
 
   const cargar = useCallback(async () => {
     try {
       setError(null)
-      const ep = isAdmin && filtro === 'todas' ? '/alarmas/todas' : '/alarmas/mis'
+      const ep = isAdmin ? '/alarmas/todas' : '/alarmas/mis'
       const res = await fetch(`${API}${ep}`, { headers: { Authorization: `Bearer ${token}` } })
       if (!res.ok) throw new Error('Error cargando alarmas')
       setAlarmas(await res.json())
     } catch (e) { setError(e.message) }
     finally { setLoading(false) }
-  }, [token, isAdmin, filtro])
+  }, [token, isAdmin])
 
-  useEffect(() => { cargar(); const id = setInterval(cargar, 30000); return () => clearInterval(id) }, [cargar])
+  useEffect(() => {
+    cargar()
+    const id = setInterval(cargar, 30000)
+    return () => clearInterval(id)
+  }, [cargar])
 
   const handleNota = async (id, notas) => {
     await fetch(`${API}/alarmas/${id}/nota`, {
-      method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ notas }),
-    }); await cargar()
+    })
+    await cargar()
   }
+
   const handleCerrar = async (id, notas) => {
     if (!window.confirm('¿Cerrar esta alarma manualmente?')) return
     await fetch(`${API}/alarmas/${id}/cerrar`, {
-      method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ notas: notas || null }),
-    }); await cargar()
+    })
+    setExpandidoId(null)
+    await cargar()
   }
 
-  const abiertas  = alarmas.filter(a => a.estado === 'abierta')
-  const mostrar   = filtro === 'todas' ? alarmas : abiertas
-  const ordenadas = [...mostrar].sort((a, b) => {
-    if (a.estado !== b.estado) return a.estado === 'abierta' ? -1 : 1
-    return (ORDEN[a.nivel] ?? 9) - (ORDEN[b.nivel] ?? 9)
-  })
+  // ── Opciones de filtro derivadas de los datos cargados ───────────────────
+  const celulaOpts = [...new Set(alarmas.map(a => a.celula).filter(Boolean))].sort()
+  const microceldaOpts = filtros.celula
+    ? [...new Set(alarmas.filter(a => a.celula === filtros.celula).map(a => a.microcelda).filter(Boolean))].sort()
+    : [...new Set(alarmas.map(a => a.microcelda).filter(Boolean))].sort()
+
+  // ── Filtros globales aplicados (célula / microcelda / técnico) ────────────
+  const hayFiltros = !!(filtros.celula || filtros.microcelda || filtros.tecnico)
+
+  const alarmasFiltradas = hayFiltros ? alarmas.filter(a => {
+    if (filtros.celula     && a.celula     !== filtros.celula)                                   return false
+    if (filtros.microcelda && a.microcelda !== filtros.microcelda)                               return false
+    if (filtros.tecnico    && !a.tecnico?.toLowerCase().includes(filtros.tecnico.toLowerCase())) return false
+    return true
+  }) : alarmas
+
+  // ── Clasificación base ────────────────────────────────────────────────────
+  const abiertas  = alarmasFiltradas.filter(a => a.estado === 'abierta')
+  const cerradas  = alarmasFiltradas.filter(a => a.estado === 'cerrada')
+
+  // Conteos globales para los tabs (sin filtro de supervisor)
+  const nCriticas  = abiertas.filter(a => a.nivel === 'critica').length
+  const nModeradas = abiertas.filter(a => a.nivel === 'moderada').length
+  const nLeves     = abiertas.filter(a => a.nivel === 'leve').length
+
+  // Pool filtrado por supervisor (cuando está activo)
+  const abiertasFiltradas = supFiltro
+    ? abiertas.filter(a => a.asignado_nombre === supFiltro)
+    : abiertas
+  const cerradasFiltradas = supFiltro
+    ? cerradas.filter(a => a.asignado_nombre === supFiltro)
+    : cerradas
+
+  // Ordenar por fecha
+  const sorted     = (arr) => [...arr].sort((a, b) => new Date(a.fecha_creacion) - new Date(b.fecha_creacion))
+  const sortedDesc = (arr) => [...arr].sort((a, b) => new Date(b.fecha_cierre)   - new Date(a.fecha_cierre))
+
+  // Aplicar filtro de nivel
+  const visibles = (() => {
+    if (nivelTab === 'critica')  return sorted(abiertasFiltradas.filter(a => a.nivel === 'critica'))
+    if (nivelTab === 'moderada') return sorted(abiertasFiltradas.filter(a => a.nivel === 'moderada'))
+    if (nivelTab === 'leve')     return sorted(abiertasFiltradas.filter(a => a.nivel === 'leve'))
+    if (nivelTab === 'cerradas') return sortedDesc(cerradasFiltradas)
+    return [
+      ...sorted(abiertasFiltradas.filter(a => a.nivel === 'critica')),
+      ...sorted(abiertasFiltradas.filter(a => a.nivel === 'moderada')),
+      ...sorted(abiertasFiltradas.filter(a => a.nivel === 'leve')),
+    ]
+  })()
+
+  const sinAlarmas = abiertas.length === 0 && nivelTab !== 'cerradas'
 
   return (
     <div className="min-h-screen bg-slate-50 pb-24">
-      <div className="bg-white border-b border-slate-200 px-4 pt-4 pb-3 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto">
-          <div className="flex items-center justify-between">
-            <div>
+      {/* Header sticky */}
+      <div className="bg-white border-b border-slate-200 px-4 pt-4 pb-3 sticky top-0 z-20">
+        <div className="max-w-2xl md:max-w-4xl mx-auto space-y-3">
+
+          {/* Fila título + botones */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
               <h1 className="text-lg font-bold text-gray-900">Alarmas</h1>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-500 truncate">
                 {abiertas.length} abiertas
-                {abiertas.filter(a => a.nivel === 'critica').length > 0 && ` · ${abiertas.filter(a => a.nivel === 'critica').length} críticas`}
+                {nCriticas > 0 && ` · ${nCriticas} críticas`}
+                {supFiltro && <span className="text-indigo-600"> · {supFiltro}</span>}
               </p>
             </div>
-            <button onClick={cargar} className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200">
-              <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            </button>
-          </div>
-          <div className="flex gap-2 mt-3">
-            {[{ id: 'abiertas', label: `Abiertas (${abiertas.length})` }, { id: 'todas', label: `Todas (${alarmas.length})` }].map(f => (
-              <button key={f.id} onClick={() => setFiltro(f.id)}
-                className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${filtro === f.id ? 'bg-red-600 text-white' : 'bg-slate-100 text-gray-600 hover:bg-slate-200'}`}>
-                {f.label}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* Botón filtros — visible solo si se pueden cambiar */}
+              {!hasScopedRole && setFiltros && (
+                <button
+                  type="button"
+                  onClick={() => setFiltrosOpen(v => !v)}
+                  style={{ WebkitTapHighlightColor: 'transparent' }}
+                  className={`relative flex items-center gap-1 px-2.5 py-2 rounded-xl border text-slate-600 transition-colors ${
+                    filtrosOpen ? 'bg-slate-800 border-slate-800 text-white' : 'bg-white border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
+                  </svg>
+                  <span className="hidden sm:inline text-xs font-medium">Filtros</span>
+                  {hayFiltros && !filtrosOpen && (
+                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-500 border-2 border-white" />
+                  )}
+                </button>
+              )}
+              {/* Recargar */}
+              <button
+                type="button"
+                onClick={cargar}
+                style={{ WebkitTapHighlightColor: 'transparent' }}
+                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200"
+              >
+                <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
               </button>
-            ))}
+            </div>
           </div>
+
+          {/* Chips de filtros activos */}
+          {hayFiltros && (
+            <div className="flex flex-wrap gap-1.5">
+              {filtros.celula && (
+                <span className="inline-flex items-center gap-1 text-[11px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-medium">
+                  📍 {filtros.celula}
+                  {setFiltros && (
+                    <button type="button"
+                      onClick={() => setFiltros(f => ({ ...f, celula: '', microcelda: '' }))}
+                      className="ml-0.5 text-indigo-400 hover:text-indigo-700">✕</button>
+                  )}
+                </span>
+              )}
+              {filtros.microcelda && (
+                <span className="inline-flex items-center gap-1 text-[11px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-medium">
+                  🔹 {filtros.microcelda}
+                  {setFiltros && (
+                    <button type="button"
+                      onClick={() => setFiltros(f => ({ ...f, microcelda: '' }))}
+                      className="ml-0.5 text-indigo-400 hover:text-indigo-700">✕</button>
+                  )}
+                </span>
+              )}
+              {filtros.tecnico && (
+                <span className="inline-flex items-center gap-1 text-[11px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-medium">
+                  👤 {filtros.tecnico}
+                  {setFiltros && (
+                    <button type="button"
+                      onClick={() => setFiltros(f => ({ ...f, tecnico: '' }))}
+                      className="ml-0.5 text-indigo-400 hover:text-indigo-700">✕</button>
+                  )}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Tabs de nivel */}
+          {!loading && (
+            <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+              <Tab active={nivelTab === 'todas'}    color="todas"    onClick={() => setNivelTab('todas')}>
+                Abiertas ({abiertas.length})
+              </Tab>
+              <Tab active={nivelTab === 'critica'}  color="critica"  onClick={() => setNivelTab('critica')}>
+                🚨 Crítica ({nCriticas})
+              </Tab>
+              <Tab active={nivelTab === 'moderada'} color="moderada" onClick={() => setNivelTab('moderada')}>
+                🔶 Moderada ({nModeradas})
+              </Tab>
+              <Tab active={nivelTab === 'leve'}     color="leve"     onClick={() => setNivelTab('leve')}>
+                ⚠️ Leve ({nLeves})
+              </Tab>
+              <Tab active={nivelTab === 'cerradas'} color="cerradas" onClick={() => setNivelTab('cerradas')}>
+                ✅ Cerradas ({cerradas.length})
+              </Tab>
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 py-4 space-y-3">
-        {loading && <div className="flex justify-center py-12"><div className="w-8 h-8 border-2 border-red-200 border-t-red-600 rounded-full animate-spin" /></div>}
-        {error   && <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">{error}</div>}
-        {!loading && !error && ordenadas.length === 0 && (
-          <div className="text-center py-16">
-            <div className="text-5xl mb-3">✅</div>
-            <p className="text-gray-500 text-sm font-medium">Sin alarmas abiertas</p>
-            <p className="text-gray-400 text-xs mt-1">Todo está en orden.</p>
+      {/* Panel de filtros inline — debajo del header sticky */}
+      {filtrosOpen && setFiltros && (
+        <div className="bg-white border-b border-slate-200 px-4 py-3">
+          <div className="max-w-2xl md:max-w-4xl mx-auto">
+            <PanelFiltros
+              filtros={filtros}
+              setFiltros={setFiltros}
+              celulaOpts={celulaOpts}
+              microceldaOpts={microceldaOpts}
+              onClose={() => setFiltrosOpen(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Contenido */}
+      <div className="max-w-2xl md:max-w-4xl mx-auto px-4 py-4">
+        {loading && (
+          <div className="flex justify-center py-12">
+            <div className="w-8 h-8 border-2 border-red-200 border-t-red-600 rounded-full animate-spin" />
           </div>
         )}
-        {ordenadas.map(a => <AlarmaCard key={a.id} alarma={a} onNota={handleNota} onCerrar={handleCerrar} isAdmin={isAdmin} />)}
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">{error}</div>
+        )}
+
+        {!loading && !error && (
+          <>
+            {/* Panel de distribución — solo admin, solo cuando hay abiertas */}
+            {isAdmin && abiertas.length > 0 && nivelTab !== 'cerradas' && (
+              <DistribucionSupervisores
+                abiertas={abiertas}
+                supFiltro={supFiltro}
+                onSelect={(nombre) => { setSupFiltro(nombre); setExpandidoId(null) }}
+              />
+            )}
+
+            {sinAlarmas ? (
+              <div className="text-center py-16">
+                <div className="text-5xl mb-3">✅</div>
+                <p className="text-gray-500 text-sm font-medium">Sin alarmas abiertas</p>
+                <p className="text-gray-400 text-xs mt-1">
+                  {hayFiltros ? 'Prueba cambiando los filtros.' : 'Todo está en orden.'}
+                </p>
+              </div>
+            ) : visibles.length === 0 ? (
+              <div className="text-center py-12 text-gray-400 text-sm">
+                Sin alarmas en esta categoría{supFiltro ? ` para ${supFiltro}` : ''}.
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-100">
+                {visibles.map(a => (
+                  <AlarmaRow
+                    key={a.id}
+                    alarma={a}
+                    expandido={expandidoId === a.id}
+                    onToggle={() => setExpandidoId(expandidoId === a.id ? null : a.id)}
+                    onNota={handleNota}
+                    onCerrar={handleCerrar}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   )
