@@ -40,9 +40,123 @@ function fmtMinDist(m) {
   return r ? `${h}h ${r}m` : `${h}h`
 }
 
+function ModalDistribucion({ bucketIdx, tecnicos, total, onClose }) {
+  const overlayRef            = useRef(null)
+  const [visible, setVisible] = useState(false)
+  const b                     = DIST_BUCKETS[bucketIdx]
+  const pct                   = total > 0 ? Math.round(tecnicos.length / total * 100) : 0
+
+  useEffect(() => { requestAnimationFrame(() => setVisible(true)) }, [])
+
+  const cerrar = () => { setVisible(false); setTimeout(onClose, 300) }
+
+  useEffect(() => {
+    const handler = e => { if (e.key === 'Escape') cerrar() }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, []) // eslint-disable-line
+
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
+
+  const handleOverlayClick = e => { if (e.target === overlayRef.current) cerrar() }
+
+  const titulo = (
+    <>
+      <h2 className="font-bold text-slate-800 text-base">
+        {b.label}
+        <span className="ml-2 text-sm font-semibold" style={{ color: b.color }}>
+          {tecnicos.length} técnico{tecnicos.length !== 1 ? 's' : ''}
+        </span>
+      </h2>
+      <p className="text-xs text-slate-500 mt-0.5">{pct}% del total de retrasos activos</p>
+    </>
+  )
+
+  const lista = (
+    <div className="space-y-2">
+      {[...tecnicos].sort((a, x) => x.edadMin - a.edadMin).map((t, i) => (
+        <div key={i} className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-2 mb-1.5">
+            <span className="font-semibold text-slate-800 text-sm truncate">{t.tecnico}</span>
+            <span className="font-bold tabular-nums shrink-0 text-sm" style={{ color: b.color }}>
+              {fmtMinDist(t.edadMin)}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-500">
+            {t.ot       && <span><span className="text-slate-400">OT </span><span className="font-medium text-slate-700">{t.ot}</span></span>}
+            {t.microcelda && <span><span className="text-slate-400">MC </span><span className="font-medium text-slate-700">{t.microcelda}</span></span>}
+            {t.ciudad   && <span><span className="text-slate-400">Ciudad </span><span className="font-medium text-slate-700">{t.ciudad}</span></span>}
+            {t.actividad && (
+              <span className="col-span-2 truncate" title={t.actividad}>
+                <span className="text-slate-400">Trabajo </span><span className="font-medium text-slate-700">{t.actividad}</span>
+              </span>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+
+  return (
+    <div
+      ref={overlayRef}
+      onClick={handleOverlayClick}
+      className={`fixed inset-0 z-50 transition-colors duration-300 ${visible ? 'bg-black/50' : 'bg-black/0'}`}
+    >
+      {/* ── MOBILE: bottom sheet ──────────────────────────────────── */}
+      <div
+        className={`sm:hidden fixed inset-x-0 bottom-0 bg-white rounded-t-2xl shadow-2xl flex flex-col
+          transition-transform duration-300 ease-out
+          ${visible ? 'translate-y-0' : 'translate-y-full'}`}
+        style={{ maxHeight: '92dvh' }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex justify-center pt-3 pb-1 shrink-0">
+          <div className="w-10 h-1 rounded-full bg-slate-300" />
+        </div>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 shrink-0">
+          <div className="min-w-0">{titulo}</div>
+          <button onClick={cerrar}
+            className="ml-3 shrink-0 w-9 h-9 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 transition-colors">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto overscroll-contain"
+          style={{ paddingBottom: 'calc(16px + env(safe-area-inset-bottom))' }}>
+          <div className="px-4 py-3">{lista}</div>
+        </div>
+      </div>
+
+      {/* ── DESKTOP: modal centrado ───────────────────────────────── */}
+      <div className={`hidden sm:flex items-center justify-center h-full transition-opacity duration-200 ${visible ? 'opacity-100' : 'opacity-0'}`}>
+        <div
+          className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col"
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+            <div>{titulo}</div>
+            <button onClick={cerrar}
+              className="text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100 transition-colors">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto px-6 py-4">{lista}</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function GraficaDistribucion({ alarmas }) {
-  const [tooltip, setTooltip] = useState(null)
-  const now = Date.now()
+  const [tooltip,     setTooltip]     = useState(null)
+  const [modalBucket, setModalBucket] = useState(null)
 
   const abiertas = (alarmas || []).filter(a => a.estado === 'abierta')
   if (abiertas.length === 0) return null
@@ -66,84 +180,87 @@ function GraficaDistribucion({ alarmas }) {
   const gap   = Math.max(4, Math.floor(barW * 0.18))
 
   return (
-    <div className="bg-white rounded-xl border border-slate-100 px-4 pt-3 pb-2">
-      <p className="text-xs font-semibold text-slate-600 mb-2">
-        Distribución de alarmas por tiempo de retraso — {abiertas.length} abierta{abiertas.length !== 1 ? 's' : ''} ahora
-      </p>
-      <div className="relative overflow-visible" style={{ userSelect: 'none' }}>
-        <svg
-          viewBox={`0 0 ${W} ${H}`}
-          className="w-full"
-          style={{ maxHeight: 120 }}
-          onMouseLeave={() => setTooltip(null)}
-        >
-          {[0.25, 0.5, 0.75, 1].map(pct => {
-            const y   = PAD_T + plotH * (1 - pct)
-            const cnt = Math.round(maxCnt * pct)
+    <>
+      <div className="bg-white rounded-xl border border-slate-100 px-4 pt-3 pb-2">
+        <p className="text-xs font-semibold text-slate-600 mb-2">
+          Distribución por tiempo de retraso — {abiertas.length} técnico{abiertas.length !== 1 ? 's' : ''} · <span className="text-slate-400 font-normal">clic en barra para ver detalle</span>
+        </p>
+        <div className="relative overflow-visible" style={{ userSelect: 'none' }}>
+          <svg
+            viewBox={`0 0 ${W} ${H}`}
+            className="w-full"
+            style={{ maxHeight: 120 }}
+            onMouseLeave={() => setTooltip(null)}
+          >
+            {[0.25, 0.5, 0.75, 1].map(pct => {
+              const y   = PAD_T + plotH * (1 - pct)
+              const cnt = Math.round(maxCnt * pct)
+              return (
+                <g key={pct}>
+                  <line x1={PAD_L} x2={W - PAD_R} y1={y} y2={y} stroke="#e2e8f0" strokeWidth="0.5" />
+                  <text x={PAD_L - 3} y={y + 3.5} textAnchor="end" fontSize="7" fill="#94a3b8">{cnt}</text>
+                </g>
+              )
+            })}
+            {DIST_BUCKETS.map((b, i) => {
+              const cnt  = grupos[i].length
+              const pct  = total > 0 ? Math.round(cnt / total * 100) : 0
+              const barH = cnt === 0 ? 2 : Math.max(4, Math.round((cnt / maxCnt) * plotH))
+              const x    = PAD_L + i * barW + gap / 2
+              const y    = PAD_T + plotH - barH
+              const w    = barW - gap
+              return (
+                <g key={i}
+                  onMouseEnter={() => setTooltip({ idx: i, svgX: x + w / 2 })}
+                  onClick={() => cnt > 0 && setModalBucket(i)}
+                  style={{ cursor: cnt > 0 ? 'pointer' : 'default' }}
+                >
+                  <rect x={x} y={PAD_T} width={w} height={plotH} fill="transparent" />
+                  <rect x={x} y={y} width={w} height={barH} fill={b.color} rx="2"
+                    opacity={tooltip?.idx === i ? 1 : 0.82} />
+                  {cnt > 0 && (
+                    <>
+                      <text x={x + w / 2} y={y - 10} textAnchor="middle"
+                        fontSize="8" fontWeight="700" fill={b.color}>{cnt}</text>
+                      <text x={x + w / 2} y={y - 2} textAnchor="middle"
+                        fontSize="6.5" fill={b.color} opacity="0.75">{pct}%</text>
+                    </>
+                  )}
+                  <text x={x + w / 2} y={H - 2} textAnchor="middle"
+                    fontSize="6.5" fill="#94a3b8">{b.label}</text>
+                </g>
+              )
+            })}
+          </svg>
+          {tooltip !== null && grupos[tooltip.idx].length > 0 && (() => {
+            const b    = DIST_BUCKETS[tooltip.idx]
+            const tecs = grupos[tooltip.idx]
+            const pct  = total > 0 ? Math.round(tecs.length / total * 100) : 0
             return (
-              <g key={pct}>
-                <line x1={PAD_L} x2={W - PAD_R} y1={y} y2={y} stroke="#e2e8f0" strokeWidth="0.5" />
-                <text x={PAD_L - 3} y={y + 3.5} textAnchor="end" fontSize="7" fill="#94a3b8">{cnt}</text>
-              </g>
-            )
-          })}
-          {DIST_BUCKETS.map((b, i) => {
-            const cnt  = grupos[i].length
-            const pct  = total > 0 ? Math.round(cnt / total * 100) : 0
-            const barH = cnt === 0 ? 2 : Math.max(4, Math.round((cnt / maxCnt) * plotH))
-            const x    = PAD_L + i * barW + gap / 2
-            const y    = PAD_T + plotH - barH
-            const w    = barW - gap
-            return (
-              <g key={i}
-                onMouseEnter={() => setTooltip({ idx: i, svgX: x + w / 2 })}
-                style={{ cursor: cnt > 0 ? 'pointer' : 'default' }}
+              <div
+                className="absolute z-30 rounded-lg shadow-lg border border-slate-200 p-2.5 min-w-[140px] pointer-events-none"
+                style={{ background: b.light, left: `${(tooltip.svgX / W) * 100}%`, top: 0, transform: 'translate(-50%, 8px)' }}
               >
-                <rect x={x} y={PAD_T} width={w} height={plotH} fill="transparent" />
-                <rect x={x} y={y} width={w} height={barH} fill={b.color} rx="2"
-                  opacity={tooltip?.idx === i ? 1 : 0.82} />
-                {cnt > 0 && (
-                  <>
-                    <text x={x + w / 2} y={y - 10} textAnchor="middle"
-                      fontSize="8" fontWeight="700" fill={b.color}>{cnt}</text>
-                    <text x={x + w / 2} y={y - 2} textAnchor="middle"
-                      fontSize="6.5" fill={b.color} opacity="0.75">{pct}%</text>
-                  </>
-                )}
-                <text x={x + w / 2} y={H - 2} textAnchor="middle"
-                  fontSize="6.5" fill="#94a3b8">{b.label}</text>
-              </g>
+                <p className="text-[10px] font-bold mb-0.5" style={{ color: b.color }}>{b.label}</p>
+                <p className="text-[10px] text-slate-500">
+                  {tecs.length} técnico{tecs.length !== 1 ? 's' : ''} · <span style={{ color: b.color }} className="font-semibold">{pct}%</span>
+                </p>
+                <p className="text-[10px] text-slate-400 mt-0.5">Clic para ver detalle</p>
+              </div>
             )
-          })}
-        </svg>
-        {tooltip !== null && grupos[tooltip.idx].length > 0 && (() => {
-          const b    = DIST_BUCKETS[tooltip.idx]
-          const tecs = grupos[tooltip.idx]
-          const pct  = total > 0 ? Math.round(tecs.length / total * 100) : 0
-          return (
-            <div
-              className="absolute z-30 rounded-lg shadow-lg border border-slate-200 p-2.5 min-w-[160px] max-w-[220px] pointer-events-none"
-              style={{ background: b.light, left: `${(tooltip.svgX / W) * 100}%`, top: 0, transform: 'translate(-50%, 8px)' }}
-            >
-              <p className="text-[10px] font-bold mb-0.5" style={{ color: b.color }}>
-                {b.label}
-              </p>
-              <p className="text-[10px] text-slate-500 mb-1">
-                {tecs.length} técnico{tecs.length !== 1 ? 's' : ''} · <span style={{ color: b.color }} className="font-semibold">{pct}% del total</span>
-              </p>
-              <ul className="space-y-0.5">
-                {tecs.slice(0, 8).map((t, i) => (
-                  <li key={i} className="text-[10px] text-slate-700 truncate">
-                    {t.tecnico} <span className="text-slate-400">({fmtMinDist(t.edadMin)})</span>
-                  </li>
-                ))}
-                {tecs.length > 8 && <li className="text-[10px] text-slate-400">+{tecs.length - 8} más…</li>}
-              </ul>
-            </div>
-          )
-        })()}
+          })()}
+        </div>
       </div>
-    </div>
+
+      {modalBucket !== null && (
+        <ModalDistribucion
+          bucketIdx={modalBucket}
+          tecnicos={grupos[modalBucket]}
+          total={total}
+          onClose={() => setModalBucket(null)}
+        />
+      )}
+    </>
   )
 }
 
