@@ -334,19 +334,20 @@ async def _capture_once():
 
 
 async def _snapshot_loop():
-    """Loop infinito: captura cada 5 minutos alineado al reloj."""
-    import math
+    """Loop infinito: captura cada 5 minutos con offset de 2 min sobre el reloj.
+    Dispara en :02/:07/:12/... para leer datos MySQL que el pipeline terminó ~30s antes."""
+    OFFSET_MIN = int(getattr(settings, "SNAPSHOT_OFFSET_MIN", 2))
     while True:
         try:
             tz  = pytz.timezone(settings.APP_TIMEZONE)
             now = datetime.now(tz)
-            # Esperar hasta el próximo múltiplo de 5 min
-            minuto_actual   = now.minute
-            minutos_a_esperar = 5 - (minuto_actual % 5)
+            minuto_actual = now.minute
+            # Minutos hasta el próximo (múltiplo de 5) + OFFSET_MIN
+            minutos_a_esperar = (OFFSET_MIN - minuto_actual % 5) % 5 or 5
             segundos_a_esperar = minutos_a_esperar * 60 - now.second
             if segundos_a_esperar <= 0:
                 segundos_a_esperar = 5
-            logger.info("[Snapshot] Próxima captura en %ds", segundos_a_esperar)
+            logger.info("[Snapshot] Próxima captura en %ds (offset=%dmin)", segundos_a_esperar, OFFSET_MIN)
             await asyncio.sleep(segundos_a_esperar)
             await _capture_once()
         except asyncio.CancelledError:
