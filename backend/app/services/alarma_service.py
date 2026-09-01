@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 ESTADOS_RETRASO  = {"Retraso actual", "Retraso en siguiente"}
 MIN_RETRASO_LEVE = 30   # Umbral mínimo para crear alarma
-MAX_ALARMAS_SUP  = 10   # Cap de alarmas abiertas por supervisor
+MAX_ALARMAS_SUP  = 5    # Cap de alarmas activas por supervisor
 HORAS_ACTIVO     = 8    # Horas desde último login para considerar "activo reciente"
 
 SLA_MIN = {"leve": 45, "moderada": 20, "critica": 10}
@@ -85,11 +85,14 @@ async def _supervisores_ccot() -> List[Dict[str, Any]]:
     return []
 
 
-async def _siguiente_supervisor(supervisores: List[Dict]) -> Optional[Dict]:
+async def _siguiente_supervisor(
+    supervisores: List[Dict],
+    carga_extra: Optional[Dict[int, int]] = None,
+) -> Optional[Dict]:
     """
-    Round-robin con cap: elige al supervisor con menos alarmas abiertas.
-    Si todos superan MAX_ALARMAS_SUP, igual asigna al de menor carga
-    pero advierte en log (sobrecarga).
+    Elige al supervisor disponible con menos alarmas activas (abierta + en_gestion).
+    Respeta cap duro de MAX_ALARMAS_SUP: devuelve None si todos están al tope.
+    carga_extra: asignaciones hechas en este ciclo aún no commiteadas.
     """
     if not supervisores:
         return None
@@ -100,19 +103,24 @@ async def _siguiente_supervisor(supervisores: List[Dict]) -> Optional[Dict]:
         ids = [s["user_id"] for s in supervisores]
         result = await session.execute(
             sa_select(Alarma.asignado_a, func.count(Alarma.id).label("cnt"))
-            .where(Alarma.estado == "abierta", Alarma.asignado_a.in_(ids))
+            .where(Alarma.estado.in_(["abierta", "en_gestion"]), Alarma.asignado_a.in_(ids))
             .group_by(Alarma.asignado_a)
         )
         carga = {row[0]: row[1] for row in result.fetchall()}
+
+    # Sumar asignaciones en memoria de este ciclo
+    for sid, extra in (carga_extra or {}).items():
+        carga[sid] = carga.get(sid, 0) + extra
 
     elegido = min(supervisores, key=lambda s: carga.get(s["user_id"], 0))
     carga_elegido = carga.get(elegido["user_id"], 0)
 
     if carga_elegido >= MAX_ALARMAS_SUP:
-        logger.warning(
-            "[Alarma][Sobrecarga] %s ya tiene %d alarmas abiertas (cap=%d) — asignando de todas formas",
-            elegido.get("full_name"), carga_elegido, MAX_ALARMAS_SUP,
+        logger.info(
+            "[Alarma][Cap] Todos los supervisores en tope (%d). Alarma queda sin asignar.",
+            MAX_ALARMAS_SUP,
         )
+        return None  # Cap duro: alarma va a cola sin asignar
     return elegido
 
 
@@ -288,11 +296,17 @@ async def procesar_alarmas(datos: List[Dict[str, Any]]) -> None:
 
     supervisores = await _supervisores_ccot()
     eventos_nuevos: List[AlarmaEvento] = []
+    # Tracking de asignaciones hechas en este ciclo (no commiteadas aún)
+    carga_ciclo: Dict[int, int] = {}
 
     async with AsyncSessionLocal() as session:
-        result = await session.execute(sa_select(Alarma).where(Alarma.estado == "abierta"))
-        abiertas: List[Alarma] = list(result.scalars().all())
-        abiertas_map: Dict[str, Alarma] = {a.tecnico: a for a in abiertas}
+        result = await session.execute(
+            sa_select(Alarma).where(Alarma.estado.in_(["abierta", "en_gestion"]))
+        )
+        activas: List[Alarma] = list(result.scalars().all())
+        abiertas: List[Alarma] = [a for a in activas if a.estado == "abierta"]
+        # Mapa técnico → alarma activa (abierta O en_gestion) para deduplicación
+        abiertas_map: Dict[str, Alarma] = {a.tecnico: a for a in activas}
 
         # ── 1. Técnico ya no retrasado → pasar a en_gestion ─────────────────
         GESTION_TIMEOUT = int(getattr(settings, "GESTION_TIMEOUT_MIN", 15))
@@ -350,7 +364,7 @@ async def procesar_alarmas(datos: List[Dict[str, Any]]) -> None:
                 ))
 
         # ── 2.5 Auto-asignación de alarmas SIN ASIGNAR ───────────────────────────
-        # Orden: critica → moderada → leve (mayor minutos primero)
+        # Orden: critica → moderada → leve
         NIVEL_ORDEN = {"critica": 0, "moderada": 1, "leve": 2}
         sin_asignar_abiertas = sorted(
             [a for a in abiertas if a.estado == "abierta" and a.asignado_a is None],
@@ -358,11 +372,12 @@ async def procesar_alarmas(datos: List[Dict[str, Any]]) -> None:
         )
         if sin_asignar_abiertas and supervisores:
             for alarma in sin_asignar_abiertas:
-                sup = await _siguiente_supervisor(supervisores)
+                sup = await _siguiente_supervisor(supervisores, carga_extra=carga_ciclo)
                 if not sup:
-                    break
+                    break  # Todos los supervisores al tope — resto queda en cola
                 alarma.asignado_a      = sup["user_id"]
                 alarma.asignado_nombre = sup.get("full_name", "")
+                carga_ciclo[sup["user_id"]] = carga_ciclo.get(sup["user_id"], 0) + 1
                 eventos_nuevos.append(AlarmaEvento(
                     alarma_id   = alarma.id,
                     tipo        = "asignacion_auto",
@@ -391,11 +406,11 @@ async def procesar_alarmas(datos: List[Dict[str, Any]]) -> None:
             if tec in abiertas_map:
                 continue
 
-            sup = await _siguiente_supervisor(supervisores)
+            sup = await _siguiente_supervisor(supervisores, carga_extra=carga_ciclo)
             min_ret = _minutos_retraso(d)
             nivel   = _nivel_por_minutos(min_ret)
 
-            # Si no hay supervisores disponibles → sin asignar
+            # Sin supervisores disponibles o todos al tope → sin asignar
             sin_asignar = sup is None
             nueva = Alarma(
                 tecnico        = tec,
@@ -412,6 +427,8 @@ async def procesar_alarmas(datos: List[Dict[str, Any]]) -> None:
                 asignado_nombre = sup.get("full_name", "") if not sin_asignar else "Sin asignar",
                 fecha_creacion = now,
             )
+            if not sin_asignar:
+                carga_ciclo[sup["user_id"]] = carga_ciclo.get(sup["user_id"], 0) + 1
             session.add(nueva)
             nuevas.append((nueva, sup, min_ret, sin_asignar))
             abiertas_map[tec] = nueva
