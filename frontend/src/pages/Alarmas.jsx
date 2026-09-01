@@ -52,12 +52,13 @@ function SlaInline({ nivel, fechaCreacion, estado }) {
 }
 
 // ── Fila de alarma ────────────────────────────────────────────────────────────
-function AlarmaRow({ alarma, expandido, onToggle, onNota, onCerrar }) {
+function AlarmaRow({ alarma, expandido, onToggle, onNota, onCerrar, onGestionar }) {
   const [editNota, setEditNota] = useState(false)
   const [notaTxt, setNotaTxt]   = useState(alarma.notas || '')
   const cfg = NIVEL_CFG[alarma.nivel] || NIVEL_CFG.leve
   const transcurrido = useTiempo(alarma.fecha_creacion)
-  const esCerrada = alarma.estado === 'cerrada'
+  const esCerrada    = ['cerrada', 'cerrada_gestionada', 'cerrada_sin_gestion'].includes(alarma.estado)
+  const enGestion    = alarma.estado === 'en_gestion'
 
   const guardar = async () => { await onNota(alarma.id, notaTxt); setEditNota(false) }
 
@@ -74,7 +75,16 @@ function AlarmaRow({ alarma, expandido, onToggle, onNota, onCerrar }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-semibold text-sm text-gray-900 truncate">{alarma.tecnico}</span>
-            {esCerrada && (
+            {enGestion && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 animate-pulse">📋 EN GESTIÓN</span>
+            )}
+            {alarma.estado === 'cerrada_gestionada' && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">✅ GESTIONADA</span>
+            )}
+            {alarma.estado === 'cerrada_sin_gestion' && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700">⚠️ SIN GESTIÓN</span>
+            )}
+            {alarma.estado === 'cerrada' && (
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-500">CERRADA</span>
             )}
           </div>
@@ -97,13 +107,15 @@ function AlarmaRow({ alarma, expandido, onToggle, onNota, onCerrar }) {
           )}
         </div>
 
-        {!esCerrada
+        {!esCerrada && !enGestion
           ? <SlaInline nivel={alarma.nivel} fechaCreacion={alarma.fecha_creacion} estado={alarma.estado} />
-          : <span className="text-[11px] shrink-0">
-              {alarma.sla_cumplido
-                ? <span className="text-green-600 font-medium">✓ SLA</span>
-                : <span className="text-red-500 font-medium">✗ SLA</span>}
-            </span>
+          : esCerrada
+            ? <span className="text-[11px] shrink-0">
+                {alarma.sla_cumplido
+                  ? <span className="text-green-600 font-medium">✓ SLA</span>
+                  : <span className="text-red-500 font-medium">✗ SLA</span>}
+              </span>
+            : null
         }
 
         <svg
@@ -193,7 +205,16 @@ function AlarmaRow({ alarma, expandido, onToggle, onNota, onCerrar }) {
             )}
           </div>
 
-          {!esCerrada && (
+          {enGestion && onGestionar && (
+            <button
+              type="button"
+              onClick={() => onGestionar(alarma)}
+              className="w-full text-xs bg-amber-600 text-white rounded-lg py-2 font-medium hover:bg-amber-700"
+            >
+              📋 Documentar gestión y cerrar
+            </button>
+          )}
+          {!esCerrada && !enGestion && (
             <button
               type="button"
               onClick={() => onCerrar(alarma.id, alarma.notas)}
@@ -204,6 +225,79 @@ function AlarmaRow({ alarma, expandido, onToggle, onNota, onCerrar }) {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Modal de gestión ─────────────────────────────────────────────────────────
+function ModalGestion({ alarma, causas, onClose, onConfirm }) {
+  const [causaId,  setCausaId]  = useState('')
+  const [notas,    setNotas]    = useState('')
+  const [saving,   setSaving]   = useState(false)
+
+  if (!alarma) return null
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!causaId) return
+    setSaving(true)
+    try { await onConfirm(alarma.id, parseInt(causaId), notas) }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h2 className="font-semibold text-gray-900">Documentar gestión</h2>
+            <p className="text-xs text-gray-500 mt-0.5">{alarma.tecnico} · {alarma.celula}</p>
+          </div>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+        </div>
+        <form onSubmit={handleSubmit} className="px-5 py-4 space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Causa del retraso *</label>
+            <select
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+              value={causaId}
+              onChange={e => setCausaId(e.target.value)}
+              required
+            >
+              <option value="">Selecciona una causa…</option>
+              {causas.map(c => (
+                <option key={c.id} value={c.id}>{c.nombre}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Notas adicionales</label>
+            <textarea
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-amber-400"
+              rows={3}
+              placeholder="Acciones tomadas, observaciones…"
+              value={notas}
+              onChange={e => setNotas(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 text-sm bg-gray-100 text-gray-700 rounded-lg py-2.5 font-medium hover:bg-gray-200"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !causaId}
+              className="flex-1 text-sm bg-amber-600 text-white rounded-lg py-2.5 font-medium hover:bg-amber-700 disabled:opacity-50"
+            >
+              {saving ? 'Guardando…' : 'Confirmar y cerrar'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }
@@ -362,6 +456,8 @@ export default function Alarmas({ filtros = {}, setFiltros, hasScopedRole = fals
   const [filtrosOpen, setFiltrosOpen] = useState(false)
   const [disponible,  setDisponible]  = useState(false)
   const [toggling,    setToggling]    = useState(false)
+  const [causas,      setCausas]      = useState([])
+  const [modalGestion, setModalGestion] = useState(null) // alarma seleccionada para gestionar
 
   // Cargar estado disponible al montar
   useEffect(() => {
@@ -407,6 +503,25 @@ export default function Alarmas({ filtros = {}, setFiltros, hasScopedRole = fals
     await cargar()
   }
 
+  // Cargar causas de retraso configurables
+  useEffect(() => {
+    fetch(`${API}/causas`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setCausas(Array.isArray(d) ? d : []))
+      .catch(() => {})
+  }, [token])
+
+  const handleGestionar = async (alarmaId, causaId, notasGestion) => {
+    await fetch(`${API}/alarmas/${alarmaId}/gestionar`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ causa_id: causaId, notas_gestion: notasGestion || null }),
+    })
+    setModalGestion(null)
+    setExpandidoId(null)
+    await cargar()
+  }
+
   const handleCerrar = async (id, notas) => {
     if (!window.confirm('¿Cerrar esta alarma manualmente?')) return
     await fetch(`${API}/alarmas/${id}/cerrar`, {
@@ -435,8 +550,9 @@ export default function Alarmas({ filtros = {}, setFiltros, hasScopedRole = fals
   }) : alarmas
 
   // ── Clasificación base ────────────────────────────────────────────────────
-  const abiertas  = alarmasFiltradas.filter(a => a.estado === 'abierta')
-  const cerradas  = alarmasFiltradas.filter(a => a.estado === 'cerrada')
+  const abiertas   = alarmasFiltradas.filter(a => a.estado === 'abierta')
+  const enGestion  = alarmasFiltradas.filter(a => a.estado === 'en_gestion')
+  const cerradas   = alarmasFiltradas.filter(a => ['cerrada', 'cerrada_gestionada', 'cerrada_sin_gestion'].includes(a.estado))
 
   // Conteos globales para los tabs (sin filtro de supervisor)
   const nCriticas  = abiertas.filter(a => a.nivel === 'critica').length
@@ -444,23 +560,21 @@ export default function Alarmas({ filtros = {}, setFiltros, hasScopedRole = fals
   const nLeves     = abiertas.filter(a => a.nivel === 'leve').length
 
   // Pool filtrado por supervisor (cuando está activo)
-  const abiertasFiltradas = supFiltro
-    ? abiertas.filter(a => a.asignado_nombre === supFiltro)
-    : abiertas
-  const cerradasFiltradas = supFiltro
-    ? cerradas.filter(a => a.asignado_nombre === supFiltro)
-    : cerradas
+  const abiertasFiltradas  = supFiltro ? abiertas.filter(a => a.asignado_nombre === supFiltro)  : abiertas
+  const enGestionFiltradas = supFiltro ? enGestion.filter(a => a.asignado_nombre === supFiltro) : enGestion
+  const cerradasFiltradas  = supFiltro ? cerradas.filter(a => a.asignado_nombre === supFiltro)  : cerradas
 
   // Ordenar por fecha
   const sorted     = (arr) => [...arr].sort((a, b) => new Date(a.fecha_creacion) - new Date(b.fecha_creacion))
   const sortedDesc = (arr) => [...arr].sort((a, b) => new Date(b.fecha_cierre)   - new Date(a.fecha_cierre))
 
-  // Aplicar filtro de nivel
+  // Aplicar filtro de nivel / tab
   const visibles = (() => {
-    if (nivelTab === 'critica')  return sorted(abiertasFiltradas.filter(a => a.nivel === 'critica'))
-    if (nivelTab === 'moderada') return sorted(abiertasFiltradas.filter(a => a.nivel === 'moderada'))
-    if (nivelTab === 'leve')     return sorted(abiertasFiltradas.filter(a => a.nivel === 'leve'))
-    if (nivelTab === 'cerradas') return sortedDesc(cerradasFiltradas)
+    if (nivelTab === 'critica')    return sorted(abiertasFiltradas.filter(a => a.nivel === 'critica'))
+    if (nivelTab === 'moderada')   return sorted(abiertasFiltradas.filter(a => a.nivel === 'moderada'))
+    if (nivelTab === 'leve')       return sorted(abiertasFiltradas.filter(a => a.nivel === 'leve'))
+    if (nivelTab === 'en_gestion') return sorted(enGestionFiltradas)
+    if (nivelTab === 'cerradas')   return sortedDesc(cerradasFiltradas)
     return [
       ...sorted(abiertasFiltradas.filter(a => a.nivel === 'critica')),
       ...sorted(abiertasFiltradas.filter(a => a.nivel === 'moderada')),
@@ -468,10 +582,16 @@ export default function Alarmas({ filtros = {}, setFiltros, hasScopedRole = fals
     ]
   })()
 
-  const sinAlarmas = abiertas.length === 0 && nivelTab !== 'cerradas'
+  const sinAlarmas = abiertas.length === 0 && !['cerradas', 'en_gestion'].includes(nivelTab)
 
   return (
     <div className="min-h-screen bg-slate-50 pb-24">
+      <ModalGestion
+        alarma={modalGestion}
+        causas={causas}
+        onClose={() => setModalGestion(null)}
+        onConfirm={handleGestionar}
+      />
       {/* Header sticky */}
       <div className="bg-white border-b border-slate-200 px-4 pt-4 pb-3 sticky top-0 z-20">
         <div className="max-w-2xl md:max-w-4xl mx-auto space-y-3">
@@ -591,6 +711,11 @@ export default function Alarmas({ filtros = {}, setFiltros, hasScopedRole = fals
               <Tab active={nivelTab === 'leve'}     color="leve"     onClick={() => setNivelTab('leve')}>
                 ⚠️ Leve ({nLeves})
               </Tab>
+              {enGestion.length > 0 && (
+                <Tab active={nivelTab === 'en_gestion'} color="cerradas" onClick={() => setNivelTab('en_gestion')}>
+                  📋 En gestión ({enGestion.length})
+                </Tab>
+              )}
               <Tab active={nivelTab === 'cerradas'} color="cerradas" onClick={() => setNivelTab('cerradas')}>
                 ✅ Cerradas ({cerradas.length})
               </Tab>
@@ -658,6 +783,7 @@ export default function Alarmas({ filtros = {}, setFiltros, hasScopedRole = fals
                     onToggle={() => setExpandidoId(expandidoId === a.id ? null : a.id)}
                     onNota={handleNota}
                     onCerrar={handleCerrar}
+                    onGestionar={setModalGestion}
                   />
                 ))}
               </div>
