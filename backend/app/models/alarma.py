@@ -25,8 +25,8 @@ class Alarma(Base):
     ot:                     Mapped[Optional[str]]    = mapped_column(String(80),  nullable=True)   # número/código OT actual
     nivel:                  Mapped[str]              = mapped_column(String(20),  nullable=False, default="leve")
     estado:                 Mapped[str]              = mapped_column(String(20),  nullable=False, default="abierta", index=True)
-    asignado_a:             Mapped[int]              = mapped_column(Integer,     nullable=False, index=True)
-    asignado_nombre:        Mapped[str]              = mapped_column(String(120), nullable=False)
+    asignado_a:             Mapped[Optional[int]]    = mapped_column(Integer,     nullable=True, index=True)
+    asignado_nombre:        Mapped[str]              = mapped_column(String(120), nullable=False, default="Sin asignar")
     fecha_creacion:         Mapped[datetime]         = mapped_column(DateTime,    nullable=False, index=True)
     fecha_cierre:           Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     tiempo_resolucion_min:  Mapped[Optional[int]]   = mapped_column(Integer,     nullable=True)
