@@ -342,6 +342,36 @@ async def procesar_alarmas(datos: List[Dict[str, Any]]) -> None:
                     f"{alarma.tecnico} — {alarma.celula}/{alarma.microcelda} ({min_ret} min de retraso)",
                 ))
 
+        # ── 2.5 Auto-asignación de alarmas SIN ASIGNAR ───────────────────────────
+        # Orden: critica → moderada → leve (mayor minutos primero)
+        NIVEL_ORDEN = {"critica": 0, "moderada": 1, "leve": 2}
+        sin_asignar_abiertas = sorted(
+            [a for a in abiertas if a.estado == "abierta" and a.asignado_a is None],
+            key=lambda a: NIVEL_ORDEN.get(a.nivel, 3),
+        )
+        if sin_asignar_abiertas and supervisores:
+            for alarma in sin_asignar_abiertas:
+                sup = await _siguiente_supervisor(supervisores)
+                if not sup:
+                    break
+                alarma.asignado_a      = sup["user_id"]
+                alarma.asignado_nombre = sup.get("full_name", "")
+                eventos_nuevos.append(AlarmaEvento(
+                    alarma_id   = alarma.id,
+                    tipo        = "asignacion_auto",
+                    user_id     = sup["user_id"],
+                    descripcion = f"Auto-asignada a {sup.get('full_name', '')} (supervisor disponible).",
+                    ts          = now,
+                ))
+                logger.info(
+                    "[Alarma][AutoAsign] %s (%s) → %s",
+                    alarma.tecnico, alarma.nivel, sup.get("full_name"),
+                )
+                asyncio.create_task(_push(
+                    sup["user_id"], "🔴 Alarma asignada automáticamente",
+                    f"{alarma.tecnico} — {alarma.celula} ({alarma.nivel})",
+                ))
+
         # ── 3. Nuevas alarmas (solo técnicos con ≥ 30 min de retraso) ─────────
         # Ordenar por minutos de retraso descendente: critica → moderada → leve
         retrasados_ordenados = sorted(
