@@ -20,6 +20,7 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_login: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    disponible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
 
     @property
     def microcelda_list(self) -> list:

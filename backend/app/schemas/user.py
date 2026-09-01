@@ -17,6 +17,7 @@ class UserOut(BaseModel):
     microceldas: Optional[List[str]] = None
     celulas: Optional[List[str]] = None
     is_active: bool
+    disponible: bool = False
 
     model_config = {"from_attributes": True}
 

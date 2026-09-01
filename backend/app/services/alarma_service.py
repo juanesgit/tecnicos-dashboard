@@ -50,54 +50,39 @@ def _minutos_retraso(d: Dict) -> int:
 async def _supervisores_ccot() -> List[Dict[str, Any]]:
     """
     Devuelve candidatos a recibir alarmas en orden de prioridad:
-      Tier 1 — WebSocket activo ahora mismo
-      Tier 2 — login en las últimas HORAS_ACTIVO horas (activo reciente)
-      Tier 3 — todos los supervisor_ccot activos en BD (fallback)
-    Siempre incluye el tier alcanzado en el log.
+      Tier 1 — disponible=True Y WebSocket activo ahora mismo
+      Tier 2 — disponible=True (sin importar presencia WS)
+      Sin Tier 3: si nadie está disponible, devuelve [] → alarma queda sin asignar.
     """
-    from datetime import timedelta
     from app.database import AsyncSessionLocal
     from app.models.user import User
     from sqlalchemy import select as sa_select
 
-    # Tier 1: WebSocket online
+    # Tier 1: WebSocket online + disponible
     from app.routers.presencia import manager
     online = manager.get_online()
-    t1 = [u for u in online if u.get("role") == "supervisor_ccot"]
+    t1 = [u for u in online if u.get("role") == "supervisor_ccot" and u.get("disponible")]
     if t1:
-        logger.info("[Alarma][Tier1] %d supervisor(es) online via WS", len(t1))
+        logger.info("[Alarma][Tier1] %d supervisor(es) online+disponible", len(t1))
         return t1
 
-    # Tier 2: activos recientes (last_login dentro de las últimas HORAS_ACTIVO h)
-    from app.config import settings as _s
-    import pytz as _pytz
-    tz  = _pytz.timezone(_s.APP_TIMEZONE)
-    ahora = datetime.now(tz).replace(tzinfo=None)
-    limite = ahora - timedelta(hours=HORAS_ACTIVO)
-
+    # Tier 2: disponible=True en BD (pueden no tener WS abierto pero marcaron disponible)
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             sa_select(User).where(
                 User.role == "supervisor_ccot",
                 User.is_active == True,
-                User.last_login >= limite,
+                User.disponible == True,
             )
         )
         t2 = [{"user_id": u.id, "full_name": u.full_name} for u in result.scalars().all()]
 
     if t2:
-        logger.info("[Alarma][Tier2] %d supervisor(es) activo(s) en las últimas %dh", len(t2), HORAS_ACTIVO)
+        logger.info("[Alarma][Tier2] %d supervisor(es) disponible(s) en BD", len(t2))
         return t2
 
-    # Tier 3: todos los activos en BD
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            sa_select(User).where(User.role == "supervisor_ccot", User.is_active == True)
-        )
-        t3 = [{"user_id": u.id, "full_name": u.full_name} for u in result.scalars().all()]
-
-    logger.info("[Alarma][Tier3] %d supervisor(es) en BD (fallback total)", len(t3))
-    return t3
+    logger.warning("[Alarma] Sin supervisores disponibles — alarma irá a cola sin asignar")
+    return []
 
 
 async def _siguiente_supervisor(supervisores: List[Dict]) -> Optional[Dict]:
@@ -362,14 +347,13 @@ async def procesar_alarmas(datos: List[Dict[str, Any]]) -> None:
         for tec, d in retrasados.items():
             if tec in abiertas_map:
                 continue
-            sup = await _siguiente_supervisor(supervisores)
-            if not sup:
-                logger.warning("[Alarma] Sin supervisores disponibles.")
-                break
 
+            sup = await _siguiente_supervisor(supervisores)
             min_ret = _minutos_retraso(d)
             nivel   = _nivel_por_minutos(min_ret)
 
+            # Si no hay supervisores disponibles → sin asignar
+            sin_asignar = sup is None
             nueva = Alarma(
                 tecnico        = tec,
                 celula         = d.get("celula", "Sin clasificar") or "Sin clasificar",
@@ -381,31 +365,39 @@ async def procesar_alarmas(datos: List[Dict[str, Any]]) -> None:
                 ot             = str(d.get("ot_actual") or "").strip() or None,
                 nivel          = nivel,
                 estado         = "abierta",
-                asignado_a     = sup["user_id"],
-                asignado_nombre = sup.get("full_name", ""),
+                asignado_a     = sup["user_id"] if not sin_asignar else None,
+                asignado_nombre = sup.get("full_name", "") if not sin_asignar else "Sin asignar",
                 fecha_creacion = now,
             )
             session.add(nueva)
-            nuevas.append((nueva, sup, min_ret))
+            nuevas.append((nueva, sup, min_ret, sin_asignar))
             abiertas_map[tec] = nueva
 
         if nuevas:
             await session.flush()
-            for nueva, sup, min_ret in nuevas:
+            for nueva, sup, min_ret, sin_asignar in nuevas:
+                desc = (
+                    f"Sin supervisores disponibles. Retraso: {min_ret} min. En cola."
+                    if sin_asignar
+                    else f"Asignada a {sup.get('full_name', '')}. Retraso: {min_ret} min."
+                )
                 eventos_nuevos.append(AlarmaEvento(
                     alarma_id=nueva.id, tipo="creacion",
-                    nivel_nuevo=nueva.nivel, user_id=sup["user_id"],
-                    descripcion=f"Asignada a {sup.get('full_name', '')}. Retraso: {min_ret} min.",
+                    nivel_nuevo=nueva.nivel,
+                    user_id=sup["user_id"] if not sin_asignar else None,
+                    descripcion=desc,
                     ts=now,
                 ))
                 logger.info(
-                    "[Alarma] Nueva: %s (%s) %d min → sup %s",
-                    nueva.tecnico, nueva.nivel, min_ret, sup.get("full_name"),
+                    "[Alarma] Nueva: %s (%s) %d min → %s",
+                    nueva.tecnico, nueva.nivel, min_ret,
+                    sup.get("full_name") if not sin_asignar else "SIN ASIGNAR",
                 )
-                asyncio.create_task(_push(
-                    sup["user_id"], "🔴 Nueva alarma asignada",
-                    f"{nueva.tecnico} — {nueva.celula} ({min_ret} min de retraso)",
-                ))
+                if not sin_asignar:
+                    asyncio.create_task(_push(
+                        sup["user_id"], "🔴 Nueva alarma asignada",
+                        f"{nueva.tecnico} — {nueva.celula} ({min_ret} min de retraso)",
+                    ))
 
         for ev in eventos_nuevos:
             session.add(ev)

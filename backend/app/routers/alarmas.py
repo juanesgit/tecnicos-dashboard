@@ -44,6 +44,9 @@ class NotaIn(BaseModel):
 class CerrarIn(BaseModel):
     notas: Optional[str] = None
 
+class AsignarIn(BaseModel):
+    supervisor_id: int
+
 
 @router.get("/badge")
 async def badge(cu: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
@@ -52,10 +55,18 @@ async def badge(cu: User = Depends(get_current_user), db: AsyncSession = Depends
     if cu.role != "admin":
         q = q.where(Alarma.asignado_a == cu.id)
     rows = (await db.execute(q)).scalars().all()
+    # Para admin: también contar sin asignar
+    sin_asignar_cnt = 0
+    if cu.role == "admin":
+        sa_rows = (await db.execute(
+            sa_select(Alarma).where(Alarma.estado == "abierta", Alarma.asignado_a == None)
+        )).scalars().all()
+        sin_asignar_cnt = len(sa_rows)
     return {
         "total": len(rows),
         "criticas": sum(1 for a in rows if a.nivel == "critica"),
         "moderadas": sum(1 for a in rows if a.nivel == "moderada"),
+        "sin_asignar": sin_asignar_cnt,
     }
 
 
@@ -108,6 +119,46 @@ async def distribucion_retrasos(cu: User = Depends(get_current_user)) -> List[Di
             "minutos_retraso_inicio": min_ret,
         })
     return result
+
+
+@router.get("/sin-asignar")
+async def sin_asignar(cu: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Cola de alarmas abiertas sin supervisor asignado. Solo admin."""
+    if cu.role != "admin":
+        raise HTTPException(status_code=403, detail="Solo admin")
+    rows = (await db.execute(
+        sa_select(Alarma)
+        .where(Alarma.estado == "abierta", Alarma.asignado_a == None)
+        .order_by(Alarma.nivel.desc(), Alarma.fecha_creacion.asc())
+    )).scalars().all()
+    return [_ser(a) for a in rows]
+
+
+@router.patch("/{alarma_id}/asignar")
+async def asignar(alarma_id: int, body: AsignarIn, cu: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Admin asigna manualmente una alarma sin asignar a un supervisor."""
+    if cu.role != "admin":
+        raise HTTPException(status_code=403, detail="Solo admin")
+    a = (await db.execute(sa_select(Alarma).where(Alarma.id == alarma_id))).scalar_one_or_none()
+    if not a:
+        raise HTTPException(status_code=404, detail="No encontrada")
+    if a.estado != "abierta":
+        raise HTTPException(status_code=400, detail="Alarma no está abierta")
+    # Buscar supervisor destino
+    sup = (await db.execute(sa_select(User).where(User.id == body.supervisor_id, User.is_active == True))).scalar_one_or_none()
+    if not sup or sup.role not in {"admin", "supervisor_ccot"}:
+        raise HTTPException(status_code=404, detail="Supervisor no encontrado")
+    from app.config import settings; import pytz
+    now = datetime.now(pytz.timezone(settings.APP_TIMEZONE)).replace(tzinfo=None)
+    a.asignado_a     = sup.id
+    a.asignado_nombre = sup.full_name
+    db.add(AlarmaEvento(
+        alarma_id=a.id, tipo="reasignacion", user_id=cu.id,
+        descripcion=f"Asignada manualmente por {cu.full_name} → {sup.full_name}.",
+        ts=now,
+    ))
+    await db.commit()
+    return _ser(a)
 
 
 @router.patch("/{alarma_id}/nota")

@@ -351,6 +351,7 @@ export default function Alarmas({ filtros = {}, setFiltros, hasScopedRole = fals
   const token   = useAuthStore(s => s.token)
   const user    = useAuthStore(s => s.user)
   const isAdmin = user?.role === 'admin'
+  const isSup   = user?.role === 'supervisor_ccot'
 
   const [alarmas,     setAlarmas]     = useState([])
   const [loading,     setLoading]     = useState(true)
@@ -359,6 +360,26 @@ export default function Alarmas({ filtros = {}, setFiltros, hasScopedRole = fals
   const [supFiltro,   setSupFiltro]   = useState(null)
   const [expandidoId, setExpandidoId] = useState(null)
   const [filtrosOpen, setFiltrosOpen] = useState(false)
+  const [disponible,  setDisponible]  = useState(false)
+  const [toggling,    setToggling]    = useState(false)
+
+  // Cargar estado disponible al montar
+  useEffect(() => {
+    if (!isSup && !isAdmin) return
+    fetch(`${API}/users/me`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(u => setDisponible(!!u.disponible)).catch(() => {})
+  }, [token, isSup, isAdmin])
+
+  const toggleDisponible = async () => {
+    setToggling(true)
+    try {
+      const r = await fetch(`${API}/users/me/disponible`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (r.ok) { const d = await r.json(); setDisponible(d.disponible) }
+    } finally { setToggling(false) }
+  }
 
   const cargar = useCallback(async () => {
     try {
@@ -466,6 +487,24 @@ export default function Alarmas({ filtros = {}, setFiltros, hasScopedRole = fals
               </p>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
+              {/* Toggle disponible — solo supervisor_ccot */}
+              {isSup && (
+                <button
+                  type="button"
+                  onClick={toggleDisponible}
+                  disabled={toggling}
+                  title={disponible ? 'Estás disponible para recibir alarmas. Clic para desactivar.' : 'No disponible. Clic para activar.'}
+                  style={{ WebkitTapHighlightColor: 'transparent' }}
+                  className={`flex items-center gap-1.5 px-2.5 py-2 rounded-xl border text-sm font-medium transition-colors ${
+                    disponible
+                      ? 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
+                      : 'bg-slate-100 border-slate-200 text-slate-500 hover:bg-slate-200'
+                  } ${toggling ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  <span className={`w-2 h-2 rounded-full ${disponible ? 'bg-green-500 animate-pulse' : 'bg-slate-400'}`} />
+                  <span className="hidden sm:inline text-xs">{disponible ? 'Disponible' : 'No disponible'}</span>
+                </button>
+              )}
               {/* Botón filtros — visible solo si se pueden cambiar */}
               {!hasScopedRole && setFiltros && (
                 <button

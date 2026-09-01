@@ -28,6 +28,11 @@ class ConnectionManager:
     def get_online(self) -> list[dict]:
         return [{"user_id": uid, **meta} for uid, meta in self._info.items()]
 
+    def update_info(self, user_id: int, **kwargs):
+        """Actualiza campos del info en memoria para un usuario conectado."""
+        if user_id in self._info:
+            self._info[user_id].update(kwargs)
+
     @property
     def count(self) -> int:
         return len(self._conns)
@@ -68,7 +73,12 @@ async def ws_presencia(websocket: WebSocket, token: str = Query(...)):
 
     await manager.connect(
         user.id,
-        {"username": user.username, "full_name": user.full_name, "role": user.role},
+        {
+            "username": user.username,
+            "full_name": user.full_name,
+            "role": user.role,
+            "disponible": user.disponible,
+        },
         websocket,
     )
 
