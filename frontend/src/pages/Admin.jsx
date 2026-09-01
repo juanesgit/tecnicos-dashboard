@@ -1272,7 +1272,7 @@ function CausasTab() {
   const load = async () => {
     try {
       const { data } = await api.get('/causas')
-      setCausas(data)
+      setCausas(Array.isArray(data) ? data : [])
     } catch { toast.error('Error cargando causas') }
     finally { setLoading(false) }
   }
