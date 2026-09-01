@@ -1260,6 +1260,169 @@ function AlarmasTab() {
   )
 }
 
+/* ── CausasTab: gestión de causas de retraso ─────────────────────────────── */
+function CausasTab() {
+  const [causas, setCausas] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [form, setForm] = useState({ nombre: '', descripcion: '' })
+  const [editId, setEditId] = useState(null)
+  const [editForm, setEditForm] = useState({ nombre: '', descripcion: '' })
+  const [saving, setSaving] = useState(false)
+
+  const load = async () => {
+    try {
+      const { data } = await api.get('/causas')
+      setCausas(data)
+    } catch { toast.error('Error cargando causas') }
+    finally { setLoading(false) }
+  }
+
+  useEffect(() => { load() }, [])
+
+  const crear = async (e) => {
+    e.preventDefault()
+    if (!form.nombre.trim()) return toast.error('El nombre es obligatorio')
+    setSaving(true)
+    try {
+      await api.post('/causas', form)
+      setForm({ nombre: '', descripcion: '' })
+      toast.success('Causa creada')
+      load()
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Error al crear')
+    } finally { setSaving(false) }
+  }
+
+  const toggleActiva = async (c) => {
+    try {
+      await api.patch(`/causas/${c.id}`, { activa: !c.activa })
+      toast.success(c.activa ? 'Causa desactivada' : 'Causa activada')
+      load()
+    } catch { toast.error('Error al actualizar') }
+  }
+
+  const guardarEdit = async (id) => {
+    if (!editForm.nombre.trim()) return toast.error('El nombre es obligatorio')
+    try {
+      await api.patch(`/causas/${id}`, editForm)
+      setEditId(null)
+      toast.success('Causa actualizada')
+      load()
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Error al actualizar')
+    }
+  }
+
+  const eliminar = async (id) => {
+    if (!window.confirm('¿Eliminar esta causa?')) return
+    try {
+      await api.delete(`/causas/${id}`)
+      toast.success('Causa eliminada')
+      load()
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Error al eliminar')
+    }
+  }
+
+  if (loading) return <div className="text-center py-8 text-gray-400">Cargando causas…</div>
+
+  return (
+    <div className="space-y-4">
+      {/* Formulario de creación */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+        <h3 className="font-semibold text-gray-700 dark:text-gray-200 mb-3">Nueva causa de retraso</h3>
+        <form onSubmit={crear} className="flex flex-col gap-2">
+          <input
+            className="border rounded-lg px-3 py-2 text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"
+            placeholder="Nombre de la causa *"
+            value={form.nombre}
+            onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))}
+          />
+          <input
+            className="border rounded-lg px-3 py-2 text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"
+            placeholder="Descripción (opcional)"
+            value={form.descripcion}
+            onChange={e => setForm(f => ({ ...f, descripcion: e.target.value }))}
+          />
+          <button
+            type="submit"
+            disabled={saving}
+            className="self-start bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium px-4 py-2 rounded-lg disabled:opacity-50"
+          >
+            {saving ? 'Guardando…' : '+ Agregar causa'}
+          </button>
+        </form>
+      </div>
+
+      {/* Lista de causas */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400 text-xs uppercase">
+            <tr>
+              <th className="px-4 py-2 text-left">Nombre</th>
+              <th className="px-4 py-2 text-left">Descripción</th>
+              <th className="px-4 py-2 text-center">Estado</th>
+              <th className="px-4 py-2 text-center">Acciones</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+            {causas.length === 0 && (
+              <tr><td colSpan={4} className="text-center py-6 text-gray-400">Sin causas configuradas</td></tr>
+            )}
+            {causas.map(c => (
+              <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-750">
+                <td className="px-4 py-2">
+                  {editId === c.id
+                    ? <input
+                        className="border rounded px-2 py-1 text-sm w-full dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"
+                        value={editForm.nombre}
+                        onChange={e => setEditForm(f => ({ ...f, nombre: e.target.value }))}
+                      />
+                    : <span className={!c.activa ? 'line-through text-gray-400' : 'text-gray-800 dark:text-gray-100'}>{c.nombre}</span>
+                  }
+                </td>
+                <td className="px-4 py-2 text-gray-500 dark:text-gray-400">
+                  {editId === c.id
+                    ? <input
+                        className="border rounded px-2 py-1 text-sm w-full dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"
+                        value={editForm.descripcion}
+                        onChange={e => setEditForm(f => ({ ...f, descripcion: e.target.value }))}
+                      />
+                    : c.descripcion || '—'
+                  }
+                </td>
+                <td className="px-4 py-2 text-center">
+                  <button
+                    onClick={() => toggleActiva(c)}
+                    className={`text-xs px-2 py-1 rounded-full font-medium ${c.activa ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'}`}
+                  >
+                    {c.activa ? 'Activa' : 'Inactiva'}
+                  </button>
+                </td>
+                <td className="px-4 py-2 text-center">
+                  <div className="flex gap-2 justify-center">
+                    {editId === c.id ? (
+                      <>
+                        <button onClick={() => guardarEdit(c.id)} className="text-xs bg-teal-600 text-white px-2 py-1 rounded hover:bg-teal-700">Guardar</button>
+                        <button onClick={() => setEditId(null)} className="text-xs bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 px-2 py-1 rounded">Cancelar</button>
+                      </>
+                    ) : (
+                      <>
+                        <button onClick={() => { setEditId(c.id); setEditForm({ nombre: c.nombre, descripcion: c.descripcion || '' }) }} className="text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 px-2 py-1 rounded hover:bg-blue-200">Editar</button>
+                        <button onClick={() => eliminar(c.id)} className="text-xs bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300 px-2 py-1 rounded hover:bg-red-200">Eliminar</button>
+                      </>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 export default function Admin() {
   const [subTab, setSubTab] = useState('monitor')
 
@@ -1270,6 +1433,7 @@ export default function Admin() {
     { id: 'excel',      icon: '📁',  label: 'Excel'      },
     { id: 'usuarios',   icon: '👥',  label: 'Usuarios'   },
     { id: 'adherencia', icon: '📋', label: 'Adherencia' },
+    { id: 'causas',     icon: '📌', label: 'Causas'     },
   ]
 
   return (
@@ -1297,6 +1461,7 @@ export default function Admin() {
       {subTab === 'excel'      && <ExcelTab />}
       {subTab === 'usuarios'   && <Usuarios />}
       {subTab === 'adherencia' && <AdherenciaTab />}
+      {subTab === 'causas'     && <CausasTab />}
     </div>
   )
 }

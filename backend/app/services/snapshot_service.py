@@ -368,13 +368,15 @@ async def _alarm_sync_loop():
     while True:
         try:
             from app.services.cache_service import get_cached_datos
-            from app.services.alarma_service import procesar_alarmas
+            from app.services.alarma_service import procesar_alarmas, cerrar_gestion_timeout
             cached = get_cached_datos()
             if cached:
                 datos = cached.get("datos", [])
                 if datos:
                     await procesar_alarmas(datos)
                     logger.debug("[AlarmSync] Sincronización de alarmas completada (%d técnicos en cache)", len(datos))
+            # Verificar timeouts de gestión cada ciclo
+            await cerrar_gestion_timeout()
             await asyncio.sleep(INTERVALO)
         except asyncio.CancelledError:
             logger.info("[AlarmSync] Loop cancelado.")

@@ -294,20 +294,27 @@ async def procesar_alarmas(datos: List[Dict[str, Any]]) -> None:
         abiertas: List[Alarma] = list(result.scalars().all())
         abiertas_map: Dict[str, Alarma] = {a.tecnico: a for a in abiertas}
 
-        # ── 1. Cierre automático: técnico ya no retrasado ≥ 30 min ───────────
+        # ── 1. Técnico ya no retrasado → pasar a en_gestion ─────────────────
+        GESTION_TIMEOUT = int(getattr(settings, "GESTION_TIMEOUT_MIN", 15))
         for alarma in abiertas:
-            if alarma.tecnico not in retrasados:
-                alarma.estado       = "cerrada"
-                alarma.fecha_cierre = now
-                edad = int((now - alarma.fecha_creacion).total_seconds() / 60)
-                alarma.tiempo_resolucion_min = edad
-                alarma.sla_cumplido = edad <= SLA_MIN[alarma.nivel]
+            if alarma.tecnico not in retrasados and alarma.estado == "abierta":
+                alarma.estado           = "en_gestion"
+                alarma.fecha_en_gestion = now
                 eventos_nuevos.append(AlarmaEvento(
-                    alarma_id=alarma.id, tipo="cierre_auto",
-                    descripcion=f"Técnico ya no presenta retraso ≥ 30 min. ({edad} min abierta)",
+                    alarma_id=alarma.id, tipo="en_gestion",
+                    descripcion=(
+                        f"Técnico ya no presenta retraso ≥ 30 min. "
+                        f"Supervisor tiene {GESTION_TIMEOUT} min para documentar."
+                    ),
                     ts=now,
                 ))
-                logger.info("[Alarma] Cierre auto: %s (%d min abierta)", alarma.tecnico, edad)
+                logger.info("[Alarma] en_gestion: %s (timeout %d min)", alarma.tecnico, GESTION_TIMEOUT)
+                if alarma.asignado_a:
+                    asyncio.create_task(_push(
+                        alarma.asignado_a,
+                        "📋 Alarma requiere gestión",
+                        f"{alarma.tecnico} ya no está retrasado — documenta la causa en {GESTION_TIMEOUT} min.",
+                    ))
 
         # ── 2. Escalado por minutos REALES de retraso del técnico ─────────────
         for alarma in abiertas:
@@ -450,3 +457,48 @@ async def procesar_alarmas(datos: List[Dict[str, Any]]) -> None:
 
     # ── 4. Rebalanceo periódico entre supervisores online ─────────────────────
     await _rebalancear_entre_online()
+
+
+async def cerrar_gestion_timeout() -> None:
+    """
+    Cierra como 'cerrada_sin_gestion' las alarmas que llevan más de
+    GESTION_TIMEOUT_MIN minutos en estado 'en_gestion' sin ser documentadas.
+    Se llama desde _alarm_sync_loop() cada ciclo (cada 2 min).
+    """
+    from app.database import AsyncSessionLocal
+    from app.models.alarma import Alarma, AlarmaEvento
+    from sqlalchemy import select as sa_select
+
+    TIMEOUT = int(getattr(settings, "GESTION_TIMEOUT_MIN", 15))
+    tz  = pytz.timezone(settings.APP_TIMEZONE)
+    now = datetime.now(tz).replace(tzinfo=None)
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            sa_select(Alarma).where(Alarma.estado == "en_gestion")
+        )
+        pendientes = result.scalars().all()
+        cerradas = 0
+        for alarma in pendientes:
+            if not alarma.fecha_en_gestion:
+                continue
+            minutos_en_gestion = int((now - alarma.fecha_en_gestion).total_seconds() / 60)
+            if minutos_en_gestion >= TIMEOUT:
+                alarma.estado       = "cerrada_sin_gestion"
+                alarma.fecha_cierre = now
+                edad = int((now - alarma.fecha_creacion).total_seconds() / 60)
+                alarma.tiempo_resolucion_min = edad
+                alarma.sla_cumplido = False
+                session.add(AlarmaEvento(
+                    alarma_id=alarma.id, tipo="cierre_sin_gestion",
+                    descripcion=f"Timeout de gestión ({TIMEOUT} min). Cerrada sin documentación.",
+                    ts=now,
+                ))
+                logger.warning(
+                    "[Alarma][Timeout] %s cerrada sin gestión (%d min en espera)",
+                    alarma.tecnico, minutos_en_gestion,
+                )
+                cerradas += 1
+        if cerradas:
+            await session.commit()
+            logger.info("[Alarma][Timeout] %d alarma(s) cerradas sin gestión.", cerradas)

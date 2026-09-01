@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import select as sa_select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
-from app.models.alarma import Alarma, AlarmaEvento, SLA_MAP
+from app.models.alarma import Alarma, AlarmaEvento, CausaRetraso, SLA_MAP
 from app.models.user import User
 from app.services.auth import get_current_user
 from app.services.cache_service import get_cached_datos
@@ -35,6 +35,12 @@ def _ser(a: Alarma) -> Dict[str, Any]:
         "minutos_retraso_inicio": a.minutos_retraso_inicio,
         "actividad": a.actividad,
         "ot": a.ot,
+        # Campos de gestión
+        "fecha_en_gestion": a.fecha_en_gestion.isoformat() if getattr(a, "fecha_en_gestion", None) else None,
+        "causa_id": getattr(a, "causa_id", None),
+        "notas_gestion": getattr(a, "notas_gestion", None),
+        "gestionada_por": getattr(a, "gestionada_por", None),
+        "fecha_gestion": a.fecha_gestion.isoformat() if getattr(a, "fecha_gestion", None) else None,
     }
 
 
@@ -47,26 +53,32 @@ class CerrarIn(BaseModel):
 class AsignarIn(BaseModel):
     supervisor_id: int
 
+class GestionarIn(BaseModel):
+    causa_id: int
+    notas_gestion: Optional[str] = None
+
 
 @router.get("/badge")
 async def badge(cu: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     _check(cu)
-    q = sa_select(Alarma).where(Alarma.estado == "abierta")
+    q = sa_select(Alarma).where(Alarma.estado.in_(["abierta", "en_gestion"]))
     if cu.role != "admin":
         q = q.where(Alarma.asignado_a == cu.id)
     rows = (await db.execute(q)).scalars().all()
-    # Para admin: también contar sin asignar
+    # Para admin: también contar sin asignar y en_gestion
     sin_asignar_cnt = 0
+    en_gestion_cnt  = 0
     if cu.role == "admin":
-        sa_rows = (await db.execute(
-            sa_select(Alarma).where(Alarma.estado == "abierta", Alarma.asignado_a == None)
-        )).scalars().all()
-        sin_asignar_cnt = len(sa_rows)
+        sin_asignar_cnt = sum(1 for a in rows if a.asignado_a is None and a.estado == "abierta")
+        en_gestion_cnt  = sum(1 for a in rows if a.estado == "en_gestion")
+    else:
+        en_gestion_cnt = sum(1 for a in rows if a.estado == "en_gestion")
     return {
         "total": len(rows),
         "criticas": sum(1 for a in rows if a.nivel == "critica"),
         "moderadas": sum(1 for a in rows if a.nivel == "moderada"),
         "sin_asignar": sin_asignar_cnt,
+        "en_gestion": en_gestion_cnt,
     }
 
 
@@ -155,6 +167,45 @@ async def asignar(alarma_id: int, body: AsignarIn, cu: User = Depends(get_curren
     db.add(AlarmaEvento(
         alarma_id=a.id, tipo="reasignacion", user_id=cu.id,
         descripcion=f"Asignada manualmente por {cu.full_name} → {sup.full_name}.",
+        ts=now,
+    ))
+    await db.commit()
+    return _ser(a)
+
+
+@router.patch("/{alarma_id}/gestionar")
+async def gestionar(alarma_id: int, body: GestionarIn, cu: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Supervisor documenta causa + notas y cierra la alarma como cerrada_gestionada."""
+    _check(cu)
+    a = (await db.execute(sa_select(Alarma).where(Alarma.id == alarma_id))).scalar_one_or_none()
+    if not a:
+        raise HTTPException(status_code=404, detail="No encontrada")
+    if cu.role != "admin" and a.asignado_a != cu.id:
+        raise HTTPException(status_code=403, detail="No es tu alarma")
+    if a.estado not in {"abierta", "en_gestion"}:
+        raise HTTPException(status_code=400, detail=f"Alarma en estado '{a.estado}', no se puede gestionar")
+    # Validar que la causa existe y está activa
+    causa = (await db.execute(sa_select(CausaRetraso).where(CausaRetraso.id == body.causa_id))).scalar_one_or_none()
+    if not causa or not causa.activa:
+        raise HTTPException(status_code=404, detail="Causa no válida o inactiva")
+
+    from app.config import settings; import pytz
+    now = datetime.now(pytz.timezone(settings.APP_TIMEZONE)).replace(tzinfo=None)
+
+    a.estado           = "cerrada_gestionada"
+    a.fecha_cierre     = now
+    a.causa_id         = body.causa_id
+    a.notas_gestion    = body.notas_gestion
+    a.gestionada_por   = cu.id
+    a.fecha_gestion    = now
+    edad = int((now - a.fecha_creacion).total_seconds() / 60)
+    a.tiempo_resolucion_min = edad
+    a.sla_cumplido = edad <= SLA_MAP.get(a.nivel, 45)
+
+    db.add(AlarmaEvento(
+        alarma_id=a.id, tipo="gestion",
+        user_id=cu.id,
+        descripcion=f"Causa: {causa.nombre}. {body.notas_gestion or ''}".strip(),
         ts=now,
     ))
     await db.commit()
