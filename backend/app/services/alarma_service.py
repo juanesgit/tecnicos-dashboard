@@ -343,8 +343,14 @@ async def procesar_alarmas(datos: List[Dict[str, Any]]) -> None:
                 ))
 
         # ── 3. Nuevas alarmas (solo técnicos con ≥ 30 min de retraso) ─────────
+        # Ordenar por minutos de retraso descendente: critica → moderada → leve
+        retrasados_ordenados = sorted(
+            retrasados.items(),
+            key=lambda item: _minutos_retraso(item[1]),
+            reverse=True,
+        )
         nuevas = []
-        for tec, d in retrasados.items():
+        for tec, d in retrasados_ordenados:
             if tec in abiertas_map:
                 continue
 
