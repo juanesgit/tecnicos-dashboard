@@ -11,6 +11,7 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 _task: asyncio.Task | None = None
+_alarm_task: asyncio.Task | None = None
 
 
 def _calcular_stats(datos: List[Dict[str, Any]]):
@@ -358,14 +359,43 @@ async def _snapshot_loop():
             await asyncio.sleep(60)
 
 
+async def _alarm_sync_loop():
+    """Loop independiente: sincroniza alarmas cada 2 min usando el cache actual.
+    No toca MySQL — solo lee datos en memoria y actualiza SQLite."""
+    INTERVALO = int(getattr(settings, "ALARM_SYNC_INTERVAL_SEC", 120))
+    # Espera inicial para no solapar con el primer snapshot
+    await asyncio.sleep(60)
+    while True:
+        try:
+            from app.services.cache_service import get_cached_datos
+            from app.services.alarma_service import procesar_alarmas
+            cached = get_cached_datos()
+            if cached:
+                datos = cached.get("datos", [])
+                if datos:
+                    await procesar_alarmas(datos)
+                    logger.debug("[AlarmSync] Sincronización de alarmas completada (%d técnicos en cache)", len(datos))
+            await asyncio.sleep(INTERVALO)
+        except asyncio.CancelledError:
+            logger.info("[AlarmSync] Loop cancelado.")
+            break
+        except Exception as exc:
+            logger.warning("[AlarmSync] Error en sincronización: %s", exc)
+            await asyncio.sleep(30)
+
+
 def start_snapshot_task():
-    """Arranca el loop de captura como tarea asyncio."""
-    global _task
-    _task = asyncio.create_task(_snapshot_loop())
+    """Arranca el loop de captura y el loop independiente de alarmas."""
+    global _task, _alarm_task
+    _task       = asyncio.create_task(_snapshot_loop())
+    _alarm_task = asyncio.create_task(_alarm_sync_loop())
     logger.info("[Snapshot] Tarea de captura iniciada.")
+    logger.info("[AlarmSync] Loop de sincronización de alarmas iniciado (cada 2 min).")
 
 
 def stop_snapshot_task():
-    global _task
+    global _task, _alarm_task
     if _task and not _task.done():
         _task.cancel()
+    if _alarm_task and not _alarm_task.done():
+        _alarm_task.cancel()
