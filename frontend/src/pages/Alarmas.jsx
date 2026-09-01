@@ -205,7 +205,7 @@ function AlarmaRow({ alarma, expandido, onToggle, onNota, onCerrar, onGestionar 
             )}
           </div>
 
-          {enGestion && onGestionar && (
+          {!esCerrada && onGestionar && (
             <button
               type="button"
               onClick={() => onGestionar(alarma)}
@@ -220,7 +220,7 @@ function AlarmaRow({ alarma, expandido, onToggle, onNota, onCerrar, onGestionar 
               onClick={() => onCerrar(alarma.id, alarma.notas)}
               className="w-full text-xs bg-gray-800 text-white rounded-lg py-2 font-medium hover:bg-gray-900"
             >
-              Cerrar alarma manualmente
+              Cerrar sin documentar
             </button>
           )}
         </div>
