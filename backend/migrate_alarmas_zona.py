@@ -31,24 +31,24 @@ try:
     import pymysql
     def get_mysql_connection():
         return pymysql.connect(
-            host=settings.MYSQL_HOST,
-            port=int(getattr(settings, "MYSQL_PORT", 3306)),
-            user=settings.MYSQL_USER,
-            password=settings.MYSQL_PASSWORD,
-            database=settings.MYSQL_DB,
-            charset="utf8mb4",
+            host=settings.DB_HOST,
+            port=int(settings.DB_PORT),
+            user=settings.DB_USER,
+            password=settings.DB_PASSWORD,
+            database=settings.DB_NAME,
+            charset=settings.DB_CHARSET,
             cursorclass=pymysql.cursors.DictCursor,
         )
 except ImportError:
     import MySQLdb
     def get_mysql_connection():
         return MySQLdb.connect(
-            host=settings.MYSQL_HOST,
-            port=int(getattr(settings, "MYSQL_PORT", 3306)),
-            user=settings.MYSQL_USER,
-            passwd=settings.MYSQL_PASSWORD,
-            db=settings.MYSQL_DB,
-            charset="utf8mb4",
+            host=settings.DB_HOST,
+            port=int(settings.DB_PORT),
+            user=settings.DB_USER,
+            passwd=settings.DB_PASSWORD,
+            db=settings.DB_NAME,
+            charset=settings.DB_CHARSET,
         )
 
 import sqlite3
@@ -173,30 +173,32 @@ def main():
     historico = _cargar_historico(zona_map)
 
     # ── Conectar SQLite ───────────────────────────────────────────────────────
-    db_path = Path(settings.SQLITE_DB_PATH) if hasattr(settings, "SQLITE_DB_PATH") else None
-    if db_path is None:
-        # Intentar deducir ruta desde DATABASE_URL
-        db_url = getattr(settings, "DATABASE_URL", "")
-        if db_url.startswith("sqlite:///"):
-            db_path = Path(db_url.replace("sqlite:///", ""))
-        else:
-            # Buscar en directorio del backend
-            db_path = Path(__file__).resolve().parent / "alarmas.db"
+    # Deducir ruta SQLite desde DATABASE_URL
+    # Formatos posibles: sqlite:///ruta, sqlite+aiosqlite:///ruta, sqlite+aiosqlite:////ruta_absoluta
+    db_url = getattr(settings, "DATABASE_URL", "")
+    db_path = None
+    for prefix in ("sqlite+aiosqlite:///", "sqlite:///"):
+        if db_url.startswith(prefix):
+            raw = db_url[len(prefix):]
+            # Si queda una / inicial es ruta absoluta Unix (/opt/...)
+            db_path = Path(raw if raw.startswith("/") else raw)
+            break
 
-    if not db_path.exists():
-        # Probar rutas comunes
+    if db_path is None or not db_path.exists():
+        # Probar rutas comunes junto al script
         for candidate in [
+            Path(__file__).resolve().parent / "tecnicos.db",
             Path(__file__).resolve().parent / "alarmas.db",
-            Path(__file__).resolve().parent / "app" / "alarmas.db",
-            Path(__file__).resolve().parent.parent / "alarmas.db",
+            Path(__file__).resolve().parent / "app" / "tecnicos.db",
         ]:
             if candidate.exists():
                 db_path = candidate
                 break
 
     if not db_path or not db_path.exists():
-        print(f"[ERROR] No se encontró la base SQLite. Ajusta db_path en el script.", file=sys.stderr)
-        print(f"[ERROR] DATABASE_URL={getattr(settings, 'DATABASE_URL', 'N/A')}", file=sys.stderr)
+        print(f"[ERROR] No se encontró la base SQLite.", file=sys.stderr)
+        print(f"[ERROR] DATABASE_URL={db_url}", file=sys.stderr)
+        print(f"[ERROR] Ruta intentada: {db_path}", file=sys.stderr)
         sys.exit(1)
 
     print(f"[SQLITE] Usando: {db_path}", file=sys.stderr)
