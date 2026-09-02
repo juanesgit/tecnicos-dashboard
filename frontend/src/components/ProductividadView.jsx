@@ -27,25 +27,24 @@ function WeightSlider({ label, value, color, onChange }) {
   )
 }
 
-/* ── Panel de pesos configurables ── */
+/* ── Panel de pesos configurables (4 dimensiones) ── */
 function WeightsPanel({ weights, onChange }) {
-  const total = weights.avance + weights.calidad + weights.velocidad
+  const KEYS = ['avance', 'efectividad', 'velocidad', 'cumplimiento']
+  const total = KEYS.reduce((s, k) => s + weights[k], 0)
   const ok    = total === 100
 
   const handleChange = (key, newVal) => {
-    // Redistribuye el resto entre los otros dos proporcionalmente
-    const otros = ['avance', 'calidad', 'velocidad'].filter(k => k !== key)
+    const otros = KEYS.filter(k => k !== key)
     const restante = 100 - newVal
     const sumOtros = otros.reduce((s, k) => s + weights[k], 0)
 
     let nuevo = { ...weights, [key]: newVal }
     if (sumOtros === 0) {
-      // Distribuye equitativamente
-      const parte = Math.floor(restante / 2)
-      nuevo[otros[0]] = parte
-      nuevo[otros[1]] = restante - parte
+      const parte = Math.floor(restante / otros.length)
+      otros.forEach((k, i) => {
+        nuevo[k] = i < otros.length - 1 ? parte : restante - parte * (otros.length - 1)
+      })
     } else {
-      // Proporcional al valor actual
       let asignado = 0
       for (let i = 0; i < otros.length - 1; i++) {
         const k = otros[i]
@@ -55,8 +54,7 @@ function WeightsPanel({ weights, onChange }) {
       }
       nuevo[otros[otros.length - 1]] = restante - asignado
     }
-    // Clamp todos a [0, 100]
-    for (const k of Object.keys(nuevo)) {
+    for (const k of KEYS) {
       nuevo[k] = Math.max(0, Math.min(100, nuevo[k]))
     }
     onChange(nuevo)
@@ -71,7 +69,7 @@ function WeightsPanel({ weights, onChange }) {
         </span>
       </div>
 
-      <div className="flex gap-3">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:flex sm:gap-3">
         <WeightSlider
           label="Avance"
           value={weights.avance}
@@ -79,10 +77,10 @@ function WeightsPanel({ weights, onChange }) {
           onChange={v => handleChange('avance', v)}
         />
         <WeightSlider
-          label="Calidad"
-          value={weights.calidad}
+          label="Efectividad"
+          value={weights.efectividad}
           color="bg-emerald-100 text-emerald-700"
-          onChange={v => handleChange('calidad', v)}
+          onChange={v => handleChange('efectividad', v)}
         />
         <WeightSlider
           label="Velocidad"
@@ -90,10 +88,16 @@ function WeightsPanel({ weights, onChange }) {
           color="bg-blue-100 text-blue-700"
           onChange={v => handleChange('velocidad', v)}
         />
+        <WeightSlider
+          label="Cumplimiento"
+          value={weights.cumplimiento}
+          color="bg-purple-100 text-purple-700"
+          onChange={v => handleChange('cumplimiento', v)}
+        />
       </div>
 
-      <p className="text-[9px] text-slate-400">
-        Avance = OTs cerradas/ejecutables · Calidad = completadas/cerradas · Velocidad = proyección a 18:00
+      <p className="text-[9px] text-slate-400 leading-snug">
+        Avance = OTs cerradas/ejecutables (pond. cuota) · Efectividad = completadas/ejecutables · Velocidad = proyección a 18:00 · Cumplimiento = OTs iniciadas a tiempo
       </p>
     </div>
   )
@@ -103,52 +107,57 @@ function WeightsPanel({ weights, onChange }) {
 function KpiBanner({ data, loading }) {
   if (loading || !data) {
     return (
-      <div className="grid grid-cols-3 gap-2">
-        {[1, 2, 3].map(i => <div key={i} className="h-14 rounded-xl bg-slate-100 animate-pulse" />)}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {[1, 2, 3, 4].map(i => <div key={i} className="h-14 rounded-xl bg-slate-100 animate-pulse" />)}
       </div>
     )
   }
 
   const mcs = data.por_microcelda ?? []
-  const tecs = data.por_tecnico   ?? []
 
-  const avgAvance = mcs.length
-    ? Math.round(mcs.reduce((s, m) => s + (m.avance ?? 0), 0) / mcs.length)
-    : 0
-  const avgCalidad = mcs.filter(m => m.calidad !== null).length
-    ? Math.round(mcs.filter(m => m.calidad !== null).reduce((s, m) => s + m.calidad, 0) / mcs.filter(m => m.calidad !== null).length)
-    : null
-  const avgVelocidad = mcs.filter(m => m.velocidad !== null).length
-    ? Math.round(mcs.filter(m => m.velocidad !== null).reduce((s, m) => s + m.velocidad, 0) / mcs.filter(m => m.velocidad !== null).length)
-    : null
+  const avg = (field) => {
+    const validas = mcs.filter(m => m[field] !== null && m[field] !== undefined)
+    return validas.length
+      ? Math.round(validas.reduce((s, m) => s + m[field], 0) / validas.length)
+      : null
+  }
+
+  const avgAvance      = avg('avance')      ?? 0
+  const avgEfectividad = avg('efectividad')
+  const avgVelocidad   = avg('velocidad')
+  const avgCumplimiento= avg('cumplimiento')
 
   return (
-    <div className="grid grid-cols-3 gap-2">
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
       {[
-        { label: 'Avance medio', val: `${avgAvance}%`,
+        { label: 'Avance medio',       val: `${avgAvance}%`,
           color: avgAvance >= 70 ? 'text-emerald-600' : avgAvance >= 40 ? 'text-amber-600' : 'text-red-600',
           bg: avgAvance >= 70 ? 'bg-emerald-50 border-emerald-200' : avgAvance >= 40 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200',
-          sub: `${mcs.length} microceldas` },
-        { label: 'Calidad media', val: avgCalidad !== null ? `${avgCalidad}%` : '—',
-          color: avgCalidad === null ? 'text-slate-400' : avgCalidad >= 80 ? 'text-emerald-600' : avgCalidad >= 60 ? 'text-amber-600' : 'text-red-600',
-          bg: avgCalidad === null ? 'bg-white border-slate-200' : avgCalidad >= 80 ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200',
-          sub: 'completadas / cerradas' },
-        { label: 'Velocidad media', val: avgVelocidad !== null ? `${avgVelocidad}%` : '—',
+          sub: `${mcs.length} microceldas · ponderado cuota` },
+        { label: 'Efectividad media',  val: avgEfectividad !== null ? `${avgEfectividad}%` : '—',
+          color: avgEfectividad === null ? 'text-slate-400' : avgEfectividad >= 70 ? 'text-emerald-600' : avgEfectividad >= 40 ? 'text-amber-600' : 'text-red-600',
+          bg: avgEfectividad === null ? 'bg-white border-slate-200' : avgEfectividad >= 70 ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200',
+          sub: 'completadas / ejecutables' },
+        { label: 'Velocidad media',    val: avgVelocidad !== null ? `${avgVelocidad}%` : '—',
           color: avgVelocidad === null ? 'text-slate-400' : avgVelocidad >= 70 ? 'text-blue-600' : avgVelocidad >= 40 ? 'text-amber-600' : 'text-red-600',
           bg: avgVelocidad === null ? 'bg-white border-slate-200' : avgVelocidad >= 70 ? 'bg-blue-50 border-blue-200' : 'bg-amber-50 border-amber-200',
           sub: data.hora_corte ? `A las ${data.hora_corte}` : 'Proyección a 18:00' },
+        { label: 'Cumplimiento medio', val: avgCumplimiento !== null ? `${avgCumplimiento}%` : '—',
+          color: avgCumplimiento === null ? 'text-slate-400' : avgCumplimiento >= 80 ? 'text-purple-600' : avgCumplimiento >= 60 ? 'text-amber-600' : 'text-red-600',
+          bg: avgCumplimiento === null ? 'bg-white border-slate-200' : avgCumplimiento >= 80 ? 'bg-purple-50 border-purple-200' : 'bg-amber-50 border-amber-200',
+          sub: 'OTs iniciadas a tiempo' },
       ].map(({ label, val, color, bg, sub }) => (
         <div key={label} className={`rounded-xl border ${bg} px-3 py-2.5`}>
           <p className={`text-xl font-bold leading-none tabular-nums ${color}`}>{val}</p>
           <p className="text-[11px] text-slate-400 font-medium mt-1 leading-snug">{label}</p>
-          {sub && <p className="text-[10px] text-slate-400 opacity-70 mt-0.5">{sub}</p>}
+          {sub && <p className="text-[10px] text-slate-400 opacity-70 mt-0.5 leading-snug">{sub}</p>}
         </div>
       ))}
     </div>
   )
 }
 
-/* ── Vista sub-tab ── */
+/* ── Sub-tabs ── */
 const SUB_TABS = [
   { id: 'heatmap',  label: '🗺️ Heatmap' },
   { id: 'tecnicos', label: '👷 Técnicos' },
@@ -177,7 +186,8 @@ export default function ProductividadView({ celulaFiltro = '' }) {
   const [loading, setLoading] = useState(true)
   const [subTab,  setSubTab]  = useState('heatmap')
 
-  const [weights, setWeights] = useState({ avance: 50, calidad: 35, velocidad: 15 })
+  // Pesos por defecto: Avance 40%, Efectividad 30%, Velocidad 15%, Cumplimiento 15%
+  const [weights, setWeights] = useState({ avance: 40, efectividad: 30, velocidad: 15, cumplimiento: 15 })
 
   const cargar = useCallback(async () => {
     setLoading(true)

@@ -13,19 +13,20 @@ function cellColor(pct) {
 }
 
 function computeScore(row, w) {
-  const total = w.avance + w.calidad + w.velocidad
+  const total = w.avance + w.efectividad + w.velocidad + w.cumplimiento
   if (total === 0) return 0
-  const a = row.avance    ?? 0
-  const c = row.calidad   ?? 0
-  const v = row.velocidad ?? 0
-  return Math.round((w.avance * a + w.calidad * c + w.velocidad * v) / total)
+  const a = row.avance       ?? 0
+  const e = row.efectividad  ?? 0
+  const v = row.velocidad    ?? 0
+  const c = row.cumplimiento ?? 0
+  return Math.round((w.avance * a + w.efectividad * e + w.velocidad * v + w.cumplimiento * c) / total)
 }
 
 /* ── Celda de métrica ── */
 function MetricCell({ val, className = '' }) {
   const { bg, text } = cellColor(val)
   return (
-    <div className={`flex items-center justify-center rounded-lg px-1.5 py-1.5 min-w-[3.5rem] ${bg} ${className}`}>
+    <div className={`flex items-center justify-center rounded-lg px-1.5 py-1.5 min-w-[3rem] ${bg} ${className}`}>
       <span className={`text-xs font-bold tabular-nums ${text}`}>
         {val !== null && val !== undefined ? `${val}%` : '—'}
       </span>
@@ -79,7 +80,6 @@ export default function MapaCalorProductividad({ porMicrocelda = [], weights, lo
     )
   }
 
-  // Ordenar por score compuesto descendente
   const sorted = [...porMicrocelda]
     .map(mc => ({ ...mc, score: computeScore(mc, weights) }))
     .sort((a, b) => b.score - a.score)
@@ -88,12 +88,13 @@ export default function MapaCalorProductividad({ porMicrocelda = [], weights, lo
     <div className="space-y-2">
 
       {/* Encabezado columnas */}
-      <div className="flex items-center gap-1.5 px-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
+      <div className="flex items-center gap-1 px-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
         <span className="flex-1 min-w-0">Microcelda</span>
-        <span className="w-14 text-center">Avance</span>
-        <span className="w-14 text-center">Calidad</span>
-        <span className="w-14 text-center">Veloc.</span>
-        <span className="w-14 text-center font-bold text-indigo-500">Score</span>
+        <span className="w-12 text-center">Avance</span>
+        <span className="w-12 text-center">Efect.</span>
+        <span className="w-12 text-center">Veloc.</span>
+        <span className="w-12 text-center">Cumpl.</span>
+        <span className="w-12 text-center font-bold text-indigo-500">Score</span>
       </div>
 
       {/* Filas */}
@@ -104,7 +105,7 @@ export default function MapaCalorProductividad({ porMicrocelda = [], weights, lo
           <div key={`${mc.celula}::${mc.microcelda}`} className="rounded-xl border border-slate-200 overflow-hidden">
             <button
               onClick={() => setExpandida(isOpen ? null : `${mc.celula}::${mc.microcelda}`)}
-              className="w-full flex items-center gap-1.5 px-3 py-2 text-left hover:bg-slate-50 transition-colors"
+              className="w-full flex items-center gap-1 px-3 py-2 text-left hover:bg-slate-50 transition-colors"
               style={{ WebkitTapHighlightColor: 'transparent' }}
             >
               <div className="flex-1 min-w-0">
@@ -113,11 +114,12 @@ export default function MapaCalorProductividad({ porMicrocelda = [], weights, lo
               </div>
 
               <MetricCell val={mc.avance} />
-              <MetricCell val={mc.calidad} />
+              <MetricCell val={mc.efectividad} />
               <MetricCell val={mc.velocidad} />
+              <MetricCell val={mc.cumplimiento} />
 
               {/* Score compuesto */}
-              <div className={`flex items-center justify-center rounded-lg px-1.5 py-1.5 min-w-[3.5rem] ${scoreColor.bg} ring-1 ring-indigo-200`}>
+              <div className={`flex items-center justify-center rounded-lg px-1.5 py-1.5 min-w-[3rem] ${scoreColor.bg} ring-1 ring-indigo-200`}>
                 <span className={`text-xs font-bold tabular-nums ${scoreColor.text}`}>{mc.score}%</span>
               </div>
 
@@ -129,13 +131,14 @@ export default function MapaCalorProductividad({ porMicrocelda = [], weights, lo
               </svg>
             </button>
 
-            {/* Detalle expandido — barra de progreso por métrica */}
+            {/* Detalle expandido */}
             {isOpen && (
               <div className="border-t border-slate-100 bg-slate-50 px-3 py-3 space-y-2">
                 {[
-                  { label: 'Avance',    val: mc.avance,    sub: `${mc.cerradas} cerradas / ${mc.ejecutable} ejecutables` },
-                  { label: 'Calidad',   val: mc.calidad,   sub: `${mc.completado} completadas / ${mc.cerradas} cerradas` },
-                  { label: 'Velocidad', val: mc.velocidad, sub: 'Proyección avance a las 18:00' },
+                  { label: 'Avance',       val: mc.avance,       sub: `${mc.cerradas} cerradas / ${mc.ejecutable} ejecutables (ponderado por cuota)` },
+                  { label: 'Efectividad',  val: mc.efectividad,  sub: `${mc.completado} completadas / ${mc.ejecutable} ejecutables` },
+                  { label: 'Velocidad',    val: mc.velocidad,    sub: 'Proyección avance ponderado a las 18:00' },
+                  { label: 'Cumplimiento', val: mc.cumplimiento, sub: 'OTs completadas iniciadas antes del fin planificado' },
                 ].map(({ label, val, sub }) => {
                   const c = cellColor(val)
                   return (

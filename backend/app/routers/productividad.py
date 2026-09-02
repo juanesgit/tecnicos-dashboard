@@ -1,4 +1,11 @@
-"""Router de productividad — métricas por técnico y microcelda."""
+"""Router de productividad — métricas por técnico y microcelda.
+
+Dimensiones del score (4):
+  - Avance      : OTs cerradas (completado + no_completado) / ejecutables, ponderado por cuota
+  - Efectividad : OTs completadas / ejecutables (escala 0..1/n — nunca null)
+  - Velocidad   : proyección de avance ponderado a las 18:00 según ritmo actual
+  - Cumplimiento: % de OTs completadas iniciadas antes de su fin planificado (a tiempo)
+"""
 import asyncio
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
@@ -42,19 +49,32 @@ def _require_auth(
     return _AuthResult(user=current_user, is_bot=False)
 
 
-def _proyectar_cierre(current_min: int, cerradas: int, por_cerrar: int):
-    """Proyecta el % de avance a las 18:00 basado en el ritmo actual."""
-    total_ejecutable = cerradas + por_cerrar
-    if total_ejecutable == 0:
+def _proyectar_cierre(current_min: int, peso_cerradas: float, peso_por_cerrar: float):
+    """Proyecta el % de avance ponderado a las 18:00 basado en el ritmo actual."""
+    peso_total = peso_cerradas + peso_por_cerrar
+    if peso_total == 0:
         return None
     transcurridos = current_min - JORNADA_INICIO_MIN
     if transcurridos <= 0:
         return None
     restantes = JORNADA_FIN_MIN - current_min
     if restantes <= 0:
-        return round(min(100.0, (cerradas / total_ejecutable) * 100), 1)
-    ritmo = cerradas / transcurridos
-    return round(min(100.0, ((cerradas + ritmo * restantes) / total_ejecutable) * 100), 1)
+        return round(min(100.0, (peso_cerradas / peso_total) * 100), 1)
+    ritmo = peso_cerradas / transcurridos
+    return round(min(100.0, ((peso_cerradas + ritmo * restantes) / peso_total) * 100), 1)
+
+
+def _parse_fin_planificado(inicio_fin_str: str) -> Optional[str]:
+    """Extrae el tiempo fin de 'HH:MM - HH:MM'. Retorna 'HH:MM' o None."""
+    try:
+        partes = str(inicio_fin_str or "").split(" - ")
+        if len(partes) >= 2:
+            fin = partes[1].strip()
+            if len(fin) == 5 and fin[2] == ":":
+                return fin
+    except Exception:
+        pass
+    return None
 
 
 def _calcular_productividad(celula: Optional[str] = None) -> dict:
@@ -76,10 +96,24 @@ def _calcular_productividad(celula: Optional[str] = None) -> dict:
             if not cursor.fetchall():
                 return {"por_tecnico": [], "por_microcelda": [], "hora_corte": hora_actual}
 
+            # ── Query con JOIN a wf_time_slot para obtener cuota por subtipo ──
             cursor.execute("""
-                SELECT w.`Técnico`, w.`Estado`, w.`Tipo de Actividad`,
-                       w.`Inicio`, w.`Inicio - Fin`, w.`Nodo`, w.`Fecha`
+                SELECT
+                    w.`Técnico`,
+                    w.`Estado`,
+                    w.`Tipo de Actividad`,
+                    w.`Subtipo de la Orden de Trabajo`,
+                    w.`Inicio`,
+                    w.`Inicio - Fin`,
+                    w.`Nodo`,
+                    w.`Fecha`,
+                    COALESCE(ts.cuota, 1) AS cuota_norma
                 FROM wf_futuro_pruebas w
+                LEFT JOIN wf_time_slot ts
+                    ON TRIM(w.`Subtipo de la Orden de Trabajo`)
+                       COLLATE utf8mb4_general_ci
+                     = TRIM(ts.SUBTRABAJO_WF)
+                       COLLATE utf8mb4_general_ci
                 WHERE w.Origen IN ('REGION OCCIDENTE', 'PYMES OCCIDENTE')
                   AND w.Fecha >= CURRENT_DATE()
                   AND w.Fecha < CURRENT_DATE() + INTERVAL 1 DAY
@@ -96,7 +130,7 @@ def _calcular_productividad(celula: Optional[str] = None) -> dict:
         if df.empty:
             return {"por_tecnico": [], "por_microcelda": [], "hora_corte": hora_actual}
 
-        # Normalizar estados
+        # ── Normalizar estados ────────────────────────────────────────────────
         estado_map = {
             "Completado":    "completado",
             "No completado": "no_completado",
@@ -107,7 +141,36 @@ def _calcular_productividad(celula: Optional[str] = None) -> dict:
         }
         df["estado_norm"] = df["Estado"].map(estado_map).fillna("otro")
 
-        # Mapeo de zona
+        # ── Peso por cuota: 1/cuota (OT compleja = cuota baja = mayor peso) ──
+        df["cuota_norma"] = pd.to_numeric(df["cuota_norma"], errors="coerce").fillna(1).clip(lower=1)
+        df["peso"] = 1.0 / df["cuota_norma"]
+
+        # ── Flags de estado ───────────────────────────────────────────────────
+        df["is_completado"] = df["estado_norm"] == "completado"
+        df["is_cerrada"]    = df["estado_norm"].isin(["completado", "no_completado"])
+        df["is_ejecutable"] = df["estado_norm"].isin(
+            ["completado", "no_completado", "iniciado", "pendiente", "suspendido"]
+        )
+
+        # ── Cumplimiento: inicio real <= fin planificado ──────────────────────
+        df["fin_planificado"] = df["Inicio - Fin"].apply(_parse_fin_planificado)
+        df["inicio_str"]      = df["Inicio"].astype(str).str.strip()
+
+        def _a_tiempo(row):
+            if not row["is_completado"]:
+                return None
+            fin = row["fin_planificado"]
+            ini = row["inicio_str"]
+            if not fin or not ini or fin in ("nan", "") or ini in ("nan", ""):
+                return None
+            try:
+                return ini <= fin   # HH:MM — comparación lexicográfica válida en 24 h
+            except Exception:
+                return None
+
+        df["a_tiempo"] = df.apply(_a_tiempo, axis=1)
+
+        # ── Mapeo de zona ─────────────────────────────────────────────────────
         zona_map = get_zona_map()
         df["microcelda"] = df["Nodo"].apply(
             lambda n: zona_map.get(str(n).strip(), {}).get("microcelda", "Sin clasificar")
@@ -123,14 +186,13 @@ def _calcular_productividad(celula: Optional[str] = None) -> dict:
             if df.empty:
                 return {"por_tecnico": [], "por_microcelda": [], "hora_corte": hora_actual}
 
-        # ── 1. Por técnico ─────────────────────────────────────────────────────
+        # ── 1. Por técnico ────────────────────────────────────────────────────
         por_tecnico = []
         for tecnico_name, grp in df.groupby("Técnico"):
             tname = str(tecnico_name).strip()
             if not tname:
                 continue
 
-            # Microcelda y célula más frecuente del técnico
             mc_mode  = grp["microcelda"].mode()
             cel_mode = grp["celula"].mode()
             mc  = str(mc_mode.iloc[0])  if not mc_mode.empty  else "Sin clasificar"
@@ -144,18 +206,26 @@ def _calcular_productividad(celula: Optional[str] = None) -> dict:
             sus = c.get("suspendido",    0)
             can = c.get("cancelado",     0)
 
-            cerradas   = com + nc
-            por_cerrar = ini + pen + sus
-            ejecutable = cerradas + por_cerrar   # excluye canceladas
+            ejecutable_count = int(grp["is_ejecutable"].sum())
 
-            # Avance: OTs cerradas / OTs ejecutables
-            avance = round(cerradas / ejecutable * 100, 1) if ejecutable > 0 else 0.0
+            # Avance ponderado
+            peso_cerradas   = float(grp.loc[grp["is_cerrada"],    "peso"].sum())
+            peso_ejecutable = float(grp.loc[grp["is_ejecutable"], "peso"].sum())
+            avance = round(peso_cerradas / peso_ejecutable * 100, 1) if peso_ejecutable > 0 else 0.0
 
-            # Calidad: completadas exitosas / total cerradas
-            calidad = round(com / cerradas * 100, 1) if cerradas > 0 else None
+            # Efectividad: completado / ejecutable (nunca null)
+            efectividad = round(com / ejecutable_count * 100, 1) if ejecutable_count > 0 else 0.0
 
-            # Velocidad: proyección de avance a las 18:00
-            velocidad = _proyectar_cierre(current_min, cerradas, por_cerrar)
+            # Velocidad: proyección avance ponderado a 18:00
+            peso_por_cerrar = peso_ejecutable - peso_cerradas
+            velocidad = _proyectar_cierre(current_min, peso_cerradas, peso_por_cerrar)
+
+            # Cumplimiento de ventana horaria
+            medibles = grp[grp["a_tiempo"].notna()]
+            cumplimiento = (
+                round(float(medibles["a_tiempo"].sum()) / len(medibles) * 100, 1)
+                if len(medibles) > 0 else None
+            )
 
             por_tecnico.append({
                 "tecnico":       tname,
@@ -168,16 +238,17 @@ def _calcular_productividad(celula: Optional[str] = None) -> dict:
                 "pendiente":     pen,
                 "suspendido":    sus,
                 "cancelado":     can,
-                "ejecutable":    ejecutable,
-                "cerradas":      cerradas,
+                "ejecutable":    ejecutable_count,
+                "cerradas":      com + nc,
                 "avance":        avance,
-                "calidad":       calidad,        # None si sin OTs cerradas aún
-                "velocidad":     velocidad,      # None si sin ritmo calculable
+                "efectividad":   efectividad,
+                "velocidad":     velocidad,
+                "cumplimiento":  cumplimiento,
             })
 
         por_tecnico.sort(key=lambda x: -(x["avance"] or 0))
 
-        # ── 2. Por microcelda (agrupado) ───────────────────────────────────────
+        # ── 2. Por microcelda ─────────────────────────────────────────────────
         por_microcelda = []
         for (cel_mc, mc), grp_mc in df.groupby(["celula", "microcelda"]):
             cm  = grp_mc["estado_norm"].value_counts().to_dict()
@@ -187,30 +258,37 @@ def _calcular_productividad(celula: Optional[str] = None) -> dict:
             pen = cm.get("pendiente",     0)
             sus = cm.get("suspendido",    0)
 
-            cerradas   = com + nc
-            por_cerrar = ini + pen + sus
-            ejecutable = cerradas + por_cerrar
+            ejecutable_count = int(grp_mc["is_ejecutable"].sum())
 
-            avance    = round(cerradas / ejecutable * 100, 1) if ejecutable > 0 else 0.0
-            calidad   = round(com / cerradas * 100, 1)        if cerradas > 0   else None
-            velocidad = _proyectar_cierre(current_min, cerradas, por_cerrar)
+            peso_cerradas   = float(grp_mc.loc[grp_mc["is_cerrada"],    "peso"].sum())
+            peso_ejecutable = float(grp_mc.loc[grp_mc["is_ejecutable"], "peso"].sum())
+            avance      = round(peso_cerradas / peso_ejecutable * 100, 1) if peso_ejecutable > 0 else 0.0
+            efectividad = round(com / ejecutable_count * 100, 1) if ejecutable_count > 0 else 0.0
 
-            n_tecnicos = int(grp_mc["Técnico"].nunique())
+            peso_por_cerrar = peso_ejecutable - peso_cerradas
+            velocidad = _proyectar_cierre(current_min, peso_cerradas, peso_por_cerrar)
+
+            medibles_mc = grp_mc[grp_mc["a_tiempo"].notna()]
+            cumplimiento = (
+                round(float(medibles_mc["a_tiempo"].sum()) / len(medibles_mc) * 100, 1)
+                if len(medibles_mc) > 0 else None
+            )
 
             por_microcelda.append({
                 "microcelda":    str(mc),
                 "celula":        str(cel_mc),
-                "n_tecnicos":    n_tecnicos,
-                "ejecutable":    ejecutable,
-                "cerradas":      cerradas,
+                "n_tecnicos":    int(grp_mc["Técnico"].nunique()),
+                "ejecutable":    ejecutable_count,
+                "cerradas":      com + nc,
                 "completado":    com,
                 "no_completado": nc,
                 "iniciado":      ini,
                 "pendiente":     pen,
                 "suspendido":    sus,
                 "avance":        avance,
-                "calidad":       calidad,
+                "efectividad":   efectividad,
                 "velocidad":     velocidad,
+                "cumplimiento":  cumplimiento,
             })
 
         por_microcelda.sort(key=lambda x: -(x["avance"] or 0))
@@ -239,11 +317,12 @@ async def productividad_tecnicos(
     auth: _AuthResult = Depends(_require_auth),
 ):
     """
-    Métricas de productividad por técnico y microcelda.
+    Métricas de productividad por técnico y microcelda (4 dimensiones).
 
-    - **avance**: % OTs cerradas sobre ejecutables (corte actual)
-    - **calidad**: % OTs completadas exitosamente sobre total cerradas
-    - **velocidad**: % avance proyectado a las 18:00 según ritmo actual
+    - **avance**      : % OTs cerradas ponderadas por cuota / ejecutables ponderadas
+    - **efectividad** : % OTs completadas / ejecutables (0..1/n — nunca null)
+    - **velocidad**   : % avance ponderado proyectado a las 18:00 según ritmo actual
+    - **cumplimiento**: % OTs completadas iniciadas antes de su fin planificado
     """
     loop = asyncio.get_event_loop()
     data = await loop.run_in_executor(None, _calcular_productividad, celula)

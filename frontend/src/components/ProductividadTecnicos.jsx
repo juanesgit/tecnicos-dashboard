@@ -13,10 +13,13 @@ function cellColor(pct) {
 }
 
 function computeScore(t, w) {
-  const total = w.avance + w.calidad + w.velocidad
+  const total = w.avance + w.efectividad + w.velocidad + w.cumplimiento
   if (total === 0) return 0
   return Math.round(
-    (w.avance * (t.avance ?? 0) + w.calidad * (t.calidad ?? 0) + w.velocidad * (t.velocidad ?? 0)) / total
+    (w.avance      * (t.avance       ?? 0) +
+     w.efectividad * (t.efectividad  ?? 0) +
+     w.velocidad   * (t.velocidad    ?? 0) +
+     w.cumplimiento* (t.cumplimiento ?? 0)) / total
   )
 }
 
@@ -51,11 +54,12 @@ function TecnicoRow({ t, score, rank }) {
         </p>
       </div>
 
-      {/* Chips */}
-      <div className="flex items-end gap-2 shrink-0">
+      {/* Chips: Avance, Efectividad, Velocidad, Cumplimiento */}
+      <div className="flex items-end gap-1.5 shrink-0">
         <Chip label="Av" val={t.avance} />
-        <Chip label="Ca" val={t.calidad} />
+        <Chip label="Ef" val={t.efectividad} />
         <Chip label="Ve" val={t.velocidad} />
+        <Chip label="Cu" val={t.cumplimiento} />
       </div>
 
       {/* Score */}
@@ -82,7 +86,6 @@ function GrupoMicrocelda({ microcelda, celula, tecnicos, weights }) {
   )
   const scoreC = cellColor(avgScore)
 
-  // Color del borde según score promedio
   const borderColor = avgScore >= 90 ? 'border-emerald-200' :
                       avgScore >= 60 ? 'border-yellow-300'  :
                       avgScore >= 40 ? 'border-amber-300'   :
@@ -96,7 +99,6 @@ function GrupoMicrocelda({ microcelda, celula, tecnicos, weights }) {
         className="w-full flex items-center gap-3 px-3 py-2.5 text-left bg-white hover:bg-slate-50 transition-colors"
         style={{ WebkitTapHighlightColor: 'transparent' }}
       >
-        {/* Indicador de score */}
         <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${scoreC.bg.replace('100','400').replace('200','500').replace('50','300')}`} />
 
         <div className="flex-1 min-w-0">
@@ -104,7 +106,6 @@ function GrupoMicrocelda({ microcelda, celula, tecnicos, weights }) {
           <p className="text-[10px] text-slate-400">{celula} · {tecsConScore.length} técnico{tecsConScore.length !== 1 ? 's' : ''}</p>
         </div>
 
-        {/* Score promedio */}
         <div className={`flex items-center justify-center rounded-lg px-2 py-1 min-w-[3rem] ${scoreC.bg} ring-1 ring-indigo-200`}>
           <span className={`text-xs font-bold tabular-nums ${scoreC.text}`}>{avgScore}%</span>
         </div>
@@ -123,10 +124,11 @@ function GrupoMicrocelda({ microcelda, celula, tecnicos, weights }) {
           <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border-b border-slate-100">
             <span className="w-4" />
             <span className="flex-1 text-[9px] font-semibold text-slate-400 uppercase tracking-wide">Técnico</span>
-            <div className="flex items-end gap-2 shrink-0">
-              <span className="w-8 text-center text-[9px] font-semibold text-slate-400">Av</span>
-              <span className="w-8 text-center text-[9px] font-semibold text-slate-400">Ca</span>
-              <span className="w-8 text-center text-[9px] font-semibold text-slate-400">Ve</span>
+            <div className="flex items-end gap-1.5 shrink-0">
+              <span className="w-7 text-center text-[9px] font-semibold text-slate-400">Av</span>
+              <span className="w-7 text-center text-[9px] font-semibold text-slate-400">Ef</span>
+              <span className="w-7 text-center text-[9px] font-semibold text-slate-400">Ve</span>
+              <span className="w-7 text-center text-[9px] font-semibold text-slate-400">Cu</span>
             </div>
             <span className="w-12 text-center text-[9px] font-bold text-indigo-500 uppercase tracking-wide">Score</span>
           </div>
@@ -161,7 +163,6 @@ export default function ProductividadTecnicos({ porTecnico = [], weights, loadin
     )
   }
 
-  // Grupos únicos de microcelda
   const grupos = []
   const seen = new Set()
   for (const t of porTecnico) {
@@ -172,7 +173,6 @@ export default function ProductividadTecnicos({ porTecnico = [], weights, loadin
     }
   }
 
-  // Ordenar grupos por score promedio descendente
   const gruposConScore = grupos.map(g => {
     const tecs = porTecnico.filter(t => t.microcelda === g.microcelda && t.celula === g.celula)
     const avg = tecs.length
@@ -205,11 +205,12 @@ export default function ProductividadTecnicos({ porTecnico = [], weights, loadin
         />
       ))}
 
-      {/* Leyenda chips */}
-      <div className="flex items-center gap-3 justify-center pt-1 text-[10px] text-slate-400 font-medium">
-        <span>Av = Avance</span>
-        <span>Ca = Calidad</span>
+      {/* Leyenda */}
+      <div className="flex items-center gap-3 justify-center pt-1 text-[10px] text-slate-400 font-medium flex-wrap">
+        <span>Av = Avance (pond. cuota)</span>
+        <span>Ef = Efectividad</span>
         <span>Ve = Velocidad</span>
+        <span>Cu = Cumplimiento</span>
       </div>
     </div>
   )
