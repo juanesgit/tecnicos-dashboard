@@ -375,22 +375,30 @@ def ejecutar_consulta_v2() -> pd.DataFrame:
         # Enriquecer con célula, microcelda y ciudad desde el mapa de zonas
         zona_map = get_zona_map()
         if 'Nodo' in df_actual.columns:
-            # ── Fallback: último Nodo conocido del técnico en el día ──────────
+            # ── Fallback: último Nodo RESOLVABLE del técnico en el día ─────────
             # Para actividades sin Nodo (admins, almacén, pre-turno…) tomamos
             # el Nodo de la última actividad ejecutada del mismo técnico que sí
-            # tenga un Nodo válido mapeado en zona_map. Todo desde df ya cargado,
-            # sin viajes extra a MySQL.
+            # esté en zona_map con una célula válida (no "Sin clasificar").
+            # Filtrar solo por nodo no vacío:
             df_con_nodo = df[
                 df['Nodo'].notna() &
                 (df['Nodo'].astype(str).str.strip() != '') &
                 df['Estado'].isin(['Completado', 'No completado', 'Iniciado'])
+            ].copy()
+            df_con_nodo['_nodo_str'] = df_con_nodo['Nodo'].astype(str).str.strip()
+            # Restringir a nodos que efectivamente tienen célula asignada en zona_map
+            df_con_nodo = df_con_nodo[
+                df_con_nodo['_nodo_str'].map(
+                    lambda n: zona_map.get(n, {}).get('celula', 'Sin clasificar') != 'Sin clasificar'
+                )
             ].sort_values(['Técnico', 'inicio_datetime'])
             ultimo_nodo_map: Dict[str, str] = (
-                df_con_nodo.groupby('Técnico')['Nodo']
+                df_con_nodo.groupby('Técnico')['_nodo_str']
                 .last()
-                .apply(lambda n: str(n).strip())
                 .to_dict()
             )
+
+            _nodos_sin_mapa: set = set()  # para log único
 
             def _resolver_zona(row) -> tuple:
                 """Devuelve (celula, microcelda, ciudad, fallback_usado)."""
@@ -398,16 +406,26 @@ def ejecutar_consulta_v2() -> pd.DataFrame:
                 zona = zona_map.get(n_actual, {}) if n_actual else {}
                 if zona.get('celula', 'Sin clasificar') != 'Sin clasificar':
                     return zona.get('celula'), zona.get('microcelda', 'Sin clasificar'), zona.get('ciudad', 'Sin clasificar'), False
-                # Fallback: último nodo conocido del técnico
+                # Fallback: último nodo resolvable conocido del técnico
                 n_fb = ultimo_nodo_map.get(row['Técnico'], '')
                 zona_fb = zona_map.get(n_fb, {}) if n_fb else {}
                 if zona_fb.get('celula', 'Sin clasificar') != 'Sin clasificar':
                     return zona_fb.get('celula'), zona_fb.get('microcelda', 'Sin clasificar'), zona_fb.get('ciudad', 'Sin clasificar'), True
+                # Genuinamente sin zona: registrar nodo problemático una vez
+                if n_actual and n_actual not in _nodos_sin_mapa:
+                    _nodos_sin_mapa.add(n_actual)
                 return 'Sin clasificar', 'Sin clasificar', 'Sin clasificar', False
 
             zona_cols = df_actual.apply(_resolver_zona, axis=1, result_type='expand')
             zona_cols.columns = ['celula', 'microcelda', 'ciudad_nodo', 'zona_fallback']
             df_actual[['celula', 'microcelda', 'ciudad_nodo', 'zona_fallback']] = zona_cols
+            sin_clasif_count = int((zona_cols['celula'] == 'Sin clasificar').sum())
+            fb_count = int(zona_cols['zona_fallback'].sum())
+            print(
+                f"[SERVICE] Zonas → fallback usados: {fb_count} | sin clasificar: {sin_clasif_count}"
+                + (f" | nodos sin mapa: {sorted(_nodos_sin_mapa)}" if _nodos_sin_mapa else ""),
+                file=sys.stderr,
+            )
         else:
             df_actual['celula']       = 'Sin clasificar'
             df_actual['microcelda']   = 'Sin clasificar'
