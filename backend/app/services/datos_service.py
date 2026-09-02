@@ -12,7 +12,69 @@ import sys
 
 from app.mysql_db import get_mysql_connection
 from app.config import settings
-from app.services.zonas_service import get_zona_map
+from app.services.zonas_service import get_zona_map, get_ciudad_map
+
+# ── Caché de nodo histórico por técnico ──────────────────────────────────────
+# Se carga una vez por arranque del servicio (o al primer uso).
+# Fuente: wf_cierre de los últimos HISTORICO_DIAS días.
+# Propósito: fallback nivel 4 para técnicos cuya actividad actual no tiene Nodo
+# ni Ciudad reconocida (e.g., almacén, pre-turno, administrativa).
+_historico_nodo_map: Dict[str, str] = {}
+_historico_loaded: bool = False
+HISTORICO_DIAS: int = 30
+
+
+def _cargar_historico_nodo_map(zona_map: Dict) -> Dict[str, str]:
+    """Consulta wf_cierre para obtener el último nodo resolvible por técnico.
+    Retorna {tecnico: nodo_code}. Vacío si la tabla no tiene columna Nodo."""
+    connection = None
+    try:
+        connection = get_mysql_connection()
+        # ¿wf_cierre tiene Nodo?
+        with connection.cursor() as cur:
+            cur.execute("SHOW COLUMNS FROM wf_cierre LIKE 'Nodo'")
+            if not cur.fetchone():
+                print("[SERVICE] wf_cierre sin columna Nodo — historial de nodos no disponible", file=sys.stderr)
+                return {}
+        fecha_desde = (date.today() - timedelta(days=HISTORICO_DIAS)).isoformat()
+        query = """
+            SELECT `Técnico`, `Nodo`, `Inicio`, `Fecha`
+            FROM wf_cierre
+            WHERE Origen IN ('REGION OCCIDENTE', 'PYMES OCCIDENTE')
+              AND Fecha >= %s
+              AND Nodo IS NOT NULL AND Nodo != ''
+              AND Estado IN ('Completado', 'No completado', 'Iniciado')
+              AND LOWER(`Tipo de Actividad`) NOT LIKE '%%almacen%%'
+              AND LOWER(`Tipo de Actividad`) NOT LIKE '%%almacén%%'
+              AND LOWER(`Tipo de Actividad`) NOT LIKE '%%almuerzo%%'
+              AND LOWER(`Tipo de Actividad`) NOT LIKE '%%pre-turno%%'
+              AND LOWER(`Tipo de Actividad`) NOT LIKE '%%preturno%%'
+            ORDER BY Fecha ASC, `Inicio` ASC
+        """
+        with connection.cursor() as cur:
+            cur.execute(query, (fecha_desde,))
+            rows = cur.fetchall()
+        if not rows:
+            return {}
+        df_h = pd.DataFrame(rows)
+        df_h['_nodo_str'] = df_h['Nodo'].astype(str).str.strip()
+        # Solo nodos que resuelven en zona_map
+        df_h = df_h[
+            df_h['_nodo_str'].map(
+                lambda n: zona_map.get(n, {}).get('celula', 'Sin clasificar') != 'Sin clasificar'
+            )
+        ]
+        if df_h.empty:
+            return {}
+        result = df_h.groupby('Técnico')['_nodo_str'].last().to_dict()
+        print(f"[SERVICE] Historial nodos: {len(result)} técnicos con nodo resolvible (últimos {HISTORICO_DIAS}d)", file=sys.stderr)
+        return result
+    except Exception as e:
+        print(f"[SERVICE] Error cargando historial de nodos: {e}", file=sys.stderr)
+        return {}
+    finally:
+        if connection:
+            connection.close()
 
 
 def ejecutar_consulta_v2() -> pd.DataFrame:
@@ -373,7 +435,14 @@ def ejecutar_consulta_v2() -> pd.DataFrame:
         df_actual['cumplimiento_time_slot_dia'] = float(cump_time_slot_dia)
 
         # Enriquecer con célula, microcelda y ciudad desde el mapa de zonas
-        zona_map = get_zona_map()
+        zona_map   = get_zona_map()
+        ciudad_map = get_ciudad_map()
+
+        # Nivel 4: nodo histórico (wf_cierre) — cargado una vez por proceso
+        global _historico_nodo_map, _historico_loaded
+        if not _historico_loaded:
+            _historico_nodo_map = _cargar_historico_nodo_map(zona_map)
+            _historico_loaded = True
         if 'Nodo' in df_actual.columns:
             # ── Fallback: último Nodo RESOLVABLE del técnico en el día ─────────
             # Para actividades sin Nodo (admins, almacén, pre-turno…) tomamos
@@ -401,17 +470,39 @@ def ejecutar_consulta_v2() -> pd.DataFrame:
             _nodos_sin_mapa: set = set()  # para log único
 
             def _resolver_zona(row) -> tuple:
-                """Devuelve (celula, microcelda, ciudad, fallback_usado)."""
+                """Devuelve (celula, microcelda, ciudad, fallback_usado).
+                Niveles de resolución:
+                  1. Nodo de la actividad actual         → zona_map
+                  2. Último nodo resolvable del día      → zona_map
+                  3. Ciudad de la actividad actual       → ciudad_map
+                  4. Último nodo resolvable histórico    → zona_map (wf_cierre)
+                """
+                # ── Nivel 1: nodo actual ──────────────────────────────────
                 n_actual = str(row['Nodo']).strip() if pd.notna(row['Nodo']) else ''
                 zona = zona_map.get(n_actual, {}) if n_actual else {}
                 if zona.get('celula', 'Sin clasificar') != 'Sin clasificar':
                     return zona.get('celula'), zona.get('microcelda', 'Sin clasificar'), zona.get('ciudad', 'Sin clasificar'), False
-                # Fallback: último nodo resolvable conocido del técnico
+
+                # ── Nivel 2: último nodo resolvable del día ───────────────
                 n_fb = ultimo_nodo_map.get(row['Técnico'], '')
                 zona_fb = zona_map.get(n_fb, {}) if n_fb else {}
                 if zona_fb.get('celula', 'Sin clasificar') != 'Sin clasificar':
                     return zona_fb.get('celula'), zona_fb.get('microcelda', 'Sin clasificar'), zona_fb.get('ciudad', 'Sin clasificar'), True
-                # Genuinamente sin zona: registrar nodo problemático una vez
+
+                # ── Nivel 3: ciudad de MySQL ──────────────────────────────
+                ciudad_raw = str(row.get('Ciudad', '') or '').strip().upper()
+                if ciudad_raw and ciudad_raw in ciudad_map:
+                    celula_c, micro_c = ciudad_map[ciudad_raw]
+                    if celula_c != 'Sin clasificar':
+                        return celula_c, micro_c, ciudad_raw.title(), True
+
+                # ── Nivel 4: nodo histórico (wf_cierre últimos 30 días) ───
+                n_hist = _historico_nodo_map.get(row['Técnico'], '')
+                zona_hist = zona_map.get(n_hist, {}) if n_hist else {}
+                if zona_hist.get('celula', 'Sin clasificar') != 'Sin clasificar':
+                    return zona_hist.get('celula'), zona_hist.get('microcelda', 'Sin clasificar'), zona_hist.get('ciudad', 'Sin clasificar'), True
+
+                # Sin zona — registrar nodo problemático una vez
                 if n_actual and n_actual not in _nodos_sin_mapa:
                     _nodos_sin_mapa.add(n_actual)
                 return 'Sin clasificar', 'Sin clasificar', 'Sin clasificar', False

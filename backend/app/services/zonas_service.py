@@ -95,6 +95,64 @@ _NODOS_EXTRA: Dict[str, Dict] = {
     "OCDR40": {"celula": "Cali",    "microcelda": "Cali Norte", "ciudad": "CALI"},
 }
 
+# ── Fallback por ciudad: cuando no hay nodo resolvible ───────────────────────
+# Permite clasificar técnicos cuya actividad actual no tiene Nodo pero sí Ciudad
+# en MySQL. La ciudad identifica célula y microcelda en casi todos los casos;
+# CALI es ambigua (Norte/Sur) así que se deja sin microcelda.
+_CIUDAD_MAP: Dict[str, tuple] = {
+    # ── Célula CALI ─────────────────────────────────────────────────────────
+    "CALI":                   ("Cali",          "Sin clasificar"),   # Norte o Sur — ambiguo
+    "YUMBO":                  ("Cali",          "Cali Norte"),
+    "JAMUNDI":                ("Cali",          "Cali Sur"),
+    "JAMUNDÍ":                ("Cali",          "Cali Sur"),
+    "CANDELARIA":             ("Cali",          "Candelaria-Florida"),
+    "FLORIDA":                ("Cali",          "Candelaria-Florida"),
+    "PRADERA":                ("Cali",          "Candelaria-Florida"),
+    # ── Célula VALLE ────────────────────────────────────────────────────────
+    "CARTAGO":                ("Valle",         "Norte Valle"),
+    "ROLDANILLO":             ("Valle",         "Norte Valle"),
+    "ZARZAL":                 ("Valle",         "Norte Valle"),
+    "LA UNION":               ("Valle",         "Norte Valle"),
+    "LA UNIÓN":               ("Valle",         "Norte Valle"),
+    "TULUA":                  ("Valle",         "Centro Valle"),
+    "TULUÁ":                  ("Valle",         "Centro Valle"),
+    "ANDALUCIA":              ("Valle",         "Centro Valle"),
+    "ANDALUCÍA":              ("Valle",         "Centro Valle"),
+    "GUADALAJARA DE BUGA":    ("Valle",         "Centro Valle"),
+    "BUGA":                   ("Valle",         "Centro Valle"),
+    "PALMIRA":                ("Valle",         "Palmira"),
+    "EL CERRITO":             ("Valle",         "Palmira"),
+    "SEVILLA":                ("Valle",         "Sevilla-Caicedonia"),
+    "CAICEDONIA":             ("Valle",         "Sevilla-Caicedonia"),
+    # ── Célula CAUCA ────────────────────────────────────────────────────────
+    "POPAYAN":                ("Cauca",         "Popayán"),
+    "POPAYÁN":                ("Cauca",         "Popayán"),
+    "PUERTO TEJADA":          ("Cauca",         "Norte Cauca"),
+    "SANTANDER DE QUILICHAO": ("Cauca",         "Norte Cauca"),
+    # ── Célula NARIÑO ───────────────────────────────────────────────────────
+    "PASTO":                  ("Nariño",        "Pasto"),
+    "IPIALES":                ("Nariño",        "Ipiales"),
+    # ── Célula HUILA-CAQUETÁ ────────────────────────────────────────────────
+    "NEIVA":                  ("Huila-Caquetá", "Neiva"),
+    "PITALITO":               ("Huila-Caquetá", "Pitalito-Garzón"),
+    "GARZON":                 ("Huila-Caquetá", "Pitalito-Garzón"),
+    "GARZÓN":                 ("Huila-Caquetá", "Pitalito-Garzón"),
+    "FLORENCIA":              ("Huila-Caquetá", "Florencia"),
+    # ── Célula TOLIMA ───────────────────────────────────────────────────────
+    "IBAGUE":                 ("Tolima",        "Ibagué"),
+    "IBAGUÉ":                 ("Tolima",        "Ibagué"),
+    "ESPINAL":                ("Tolima",        "Sur Tolima"),
+    "GUAMO":                  ("Tolima",        "Sur Tolima"),
+    "FLANDES":                ("Tolima",        "Sur Tolima"),
+    "MELGAR":                 ("Tolima",        "Sur Tolima"),
+}
+
+
+def get_ciudad_map() -> Dict[str, tuple]:
+    """Retorna el mapa ciudad (uppercase) → (celula, microcelda)."""
+    return _CIUDAD_MAP
+
+
 # Caché en memoria: nodo_code (str) → dict
 _zona_map: Dict[str, Dict] = {}
 _loaded = False
