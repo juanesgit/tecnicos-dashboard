@@ -547,6 +547,24 @@ def ejecutar_consulta_v2() -> pd.DataFrame:
             'Nodo':              'nodo',
         })
 
+        # ── Rellenar ciudad_actual vacía con ciudad_nodo (resolución de zona) ──
+        # Técnicos sin Ciudad en MySQL (actividades no operativas, almuerzo, etc.)
+        # muestran '-' en TablaTecnicos; ciudad_nodo ya tiene el fallback de 4 niveles.
+        if 'ciudad_nodo' in df_final.columns:
+            mask_sin_ciudad = (
+                df_final['ciudad_actual'].isna() |
+                (df_final['ciudad_actual'].astype(str).str.strip() == '') |
+                (df_final['ciudad_actual'].astype(str).str.strip() == 'nan') |
+                (df_final['ciudad_actual'].astype(str).str.strip() == 'Sin clasificar')
+            )
+            ciudad_nodo_valida = (
+                df_final['ciudad_nodo'].notna() &
+                (df_final['ciudad_nodo'].astype(str).str.strip() != '') &
+                (df_final['ciudad_nodo'].astype(str).str.strip() != 'Sin clasificar')
+            )
+            df_final.loc[mask_sin_ciudad & ciudad_nodo_valida, 'ciudad_actual'] = \
+                df_final.loc[mask_sin_ciudad & ciudad_nodo_valida, 'ciudad_nodo']
+
         t_global_end = time.time()
         print(f"[SERVICE] Total: {t_global_end - t_global_start:.3f}s | filas: {len(df_final)}", file=sys.stderr)
         return df_final
