@@ -414,6 +414,7 @@ async def procesar_alarmas(datos: List[Dict[str, Any]]) -> None:
             sin_asignar = sup is None
             nueva = Alarma(
                 tecnico        = tec,
+                nodo           = str(d.get("nodo") or "").strip() or None,
                 celula         = d.get("celula", "Sin clasificar") or "Sin clasificar",
                 microcelda     = d.get("microcelda", "Sin clasificar") or "Sin clasificar",
                 ciudad         = d.get("ciudad_nodo") or d.get("ciudad_actual") or None,

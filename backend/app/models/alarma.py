@@ -39,6 +39,7 @@ class Alarma(Base):
     ciudad:                 Mapped[Optional[str]]    = mapped_column(String(80),  nullable=True)
     tipo_retraso:           Mapped[Optional[str]]    = mapped_column(String(40),  nullable=True)   # "Retraso actual" | "Retraso en siguiente"
     minutos_retraso_inicio: Mapped[Optional[int]]   = mapped_column(Integer,     nullable=True)   # retraso al crear la alarma
+    nodo:                   Mapped[Optional[str]]    = mapped_column(String(80),  nullable=True)   # nodo de red (fuente de verdad para zona)
     actividad:              Mapped[Optional[str]]    = mapped_column(String(120), nullable=True)   # tipo de actividad OT actual
     ot:                     Mapped[Optional[str]]    = mapped_column(String(80),  nullable=True)   # número/código OT actual
     nivel:                  Mapped[str]              = mapped_column(String(20),  nullable=False, default="leve")
