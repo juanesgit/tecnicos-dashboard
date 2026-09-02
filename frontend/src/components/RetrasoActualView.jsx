@@ -38,7 +38,12 @@ function TecnicoRow({ t, onDetalle }) {
           )}
         </div>
         <p className="text-[10px] text-slate-400 truncate">
-          {t.microcelda && <span>{t.microcelda}</span>}
+          {t.microcelda && (
+            <span title={t.zona_fallback ? 'Ubicación estimada (última visita conocida)' : undefined}>
+              {t.zona_fallback && <span className="text-slate-300 mr-0.5">~</span>}
+              {t.microcelda}
+            </span>
+          )}
           {t.actividad_actual && <span className="ml-1">· {t.actividad_actual}</span>}
         </p>
       </div>

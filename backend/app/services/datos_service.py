@@ -375,21 +375,46 @@ def ejecutar_consulta_v2() -> pd.DataFrame:
         # Enriquecer con célula, microcelda y ciudad desde el mapa de zonas
         zona_map = get_zona_map()
         if 'Nodo' in df_actual.columns:
-            df_actual['celula']     = df_actual['Nodo'].apply(
-                lambda n: zona_map.get(str(n).strip(), {}).get('celula', 'Sin clasificar') if pd.notna(n) else 'Sin clasificar'
+            # ── Fallback: último Nodo conocido del técnico en el día ──────────
+            # Para actividades sin Nodo (admins, almacén, pre-turno…) tomamos
+            # el Nodo de la última actividad ejecutada del mismo técnico que sí
+            # tenga un Nodo válido mapeado en zona_map. Todo desde df ya cargado,
+            # sin viajes extra a MySQL.
+            df_con_nodo = df[
+                df['Nodo'].notna() &
+                (df['Nodo'].astype(str).str.strip() != '') &
+                df['Estado'].isin(['Completado', 'No completado', 'Iniciado'])
+            ].sort_values(['Técnico', 'inicio_datetime'])
+            ultimo_nodo_map: Dict[str, str] = (
+                df_con_nodo.groupby('Técnico')['Nodo']
+                .last()
+                .apply(lambda n: str(n).strip())
+                .to_dict()
             )
-            df_actual['microcelda'] = df_actual['Nodo'].apply(
-                lambda n: zona_map.get(str(n).strip(), {}).get('microcelda', 'Sin clasificar') if pd.notna(n) else 'Sin clasificar'
-            )
-            df_actual['ciudad_nodo'] = df_actual['Nodo'].apply(
-                lambda n: zona_map.get(str(n).strip(), {}).get('ciudad', 'Sin clasificar') if pd.notna(n) else 'Sin clasificar'
-            )
-        else:
-            df_actual['celula']      = 'Sin clasificar'
-            df_actual['microcelda']  = 'Sin clasificar'
-            df_actual['ciudad_nodo'] = 'Sin clasificar'
 
-        cols_extra = ['celula', 'microcelda', 'ciudad_nodo']
+            def _resolver_zona(row) -> tuple:
+                """Devuelve (celula, microcelda, ciudad, fallback_usado)."""
+                n_actual = str(row['Nodo']).strip() if pd.notna(row['Nodo']) else ''
+                zona = zona_map.get(n_actual, {}) if n_actual else {}
+                if zona.get('celula', 'Sin clasificar') != 'Sin clasificar':
+                    return zona.get('celula'), zona.get('microcelda', 'Sin clasificar'), zona.get('ciudad', 'Sin clasificar'), False
+                # Fallback: último nodo conocido del técnico
+                n_fb = ultimo_nodo_map.get(row['Técnico'], '')
+                zona_fb = zona_map.get(n_fb, {}) if n_fb else {}
+                if zona_fb.get('celula', 'Sin clasificar') != 'Sin clasificar':
+                    return zona_fb.get('celula'), zona_fb.get('microcelda', 'Sin clasificar'), zona_fb.get('ciudad', 'Sin clasificar'), True
+                return 'Sin clasificar', 'Sin clasificar', 'Sin clasificar', False
+
+            zona_cols = df_actual.apply(_resolver_zona, axis=1, result_type='expand')
+            zona_cols.columns = ['celula', 'microcelda', 'ciudad_nodo', 'zona_fallback']
+            df_actual[['celula', 'microcelda', 'ciudad_nodo', 'zona_fallback']] = zona_cols
+        else:
+            df_actual['celula']       = 'Sin clasificar'
+            df_actual['microcelda']   = 'Sin clasificar'
+            df_actual['ciudad_nodo']  = 'Sin clasificar'
+            df_actual['zona_fallback'] = False
+
+        cols_extra = ['celula', 'microcelda', 'ciudad_nodo', 'zona_fallback']
         if 'Nodo' in df_actual.columns:
             cols_extra = ['Nodo'] + cols_extra
 
@@ -407,10 +432,10 @@ def ejecutar_consulta_v2() -> pd.DataFrame:
             'margen_6pm', 'riesgo_6pm', 'pendientes_con_cuota',
         ] + cols_extra].rename(columns={
             'Tipo de Actividad': 'actividad_actual',
-            'ot_base': 'ot_actual',
-            'Ciudad': 'ciudad_actual',
-            'Inicio': 'inicio_actual',
-            'Nodo': 'nodo',
+            'ot_base':           'ot_actual',
+            'Ciudad':            'ciudad_actual',
+            'Inicio':            'inicio_actual',
+            'Nodo':              'nodo',
         })
 
         t_global_end = time.time()
