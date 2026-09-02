@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip,
@@ -154,12 +154,35 @@ function ModalDistribucion({ bucketIdx, tecnicos, total, onClose }) {
   )
 }
 
-function GraficaDistribucion({ alarmas }) {
+function GraficaDistribucion({ alarmas, fetchError }) {
   const [tooltip,     setTooltip]     = useState(null)
   const [modalBucket, setModalBucket] = useState(null)
 
   const abiertas = (alarmas || []).filter(a => a.estado === 'abierta')
-  if (abiertas.length === 0) return null
+
+  if (fetchError) {
+    return (
+      <div className="bg-white rounded-xl border border-slate-100 px-4 py-3 flex items-center gap-3">
+        <span className="text-lg shrink-0">⚠️</span>
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-slate-600">Distribución por tiempo de retraso</p>
+          <p className="text-xs text-red-500 mt-0.5">No se pudo cargar — reintentando cada 30 s</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (abiertas.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-slate-100 px-4 py-3 flex items-center gap-3">
+        <span className="text-lg shrink-0">✅</span>
+        <div>
+          <p className="text-xs font-semibold text-slate-600">Distribución por tiempo de retraso</p>
+          <p className="text-xs text-slate-400 mt-0.5">Sin técnicos retrasados en este momento</p>
+        </div>
+      </div>
+    )
+  }
 
   const grupos = DIST_BUCKETS.map(() => [])
   abiertas.forEach(a => {
@@ -335,14 +358,18 @@ export default function Historico({
   const [celulas,  setCelulas]  = useState(null)
   const [mcSeries, setMcSeries] = useState(null)   // { microcelda: [{t, con_retraso, ...}] }
   const [loading,  setLoading]  = useState(false)
-  const [alarmas,  setAlarmas]  = useState([])
+  const [alarmas,     setAlarmas]     = useState([])
+  const [distError,   setDistError]   = useState(false)
 
   // Fetch de técnicos retrasados en tiempo real (MySQL vía caché) para gráfica distribución
   const fetchAlarmas = useCallback(async () => {
     try {
       const res = await api.get('/alarmas/distribucion-retrasos')
       setAlarmas(res.data ?? [])
-    } catch { /* silencioso — la gráfica no aparece si falla */ }
+      setDistError(false)
+    } catch {
+      setDistError(true)
+    }
   }, [])
 
   useEffect(() => {
@@ -567,11 +594,14 @@ export default function Historico({
           )}
 
           {/* Distribución de alarmas por tiempo abierto — filtrada por filtros globales */}
-          <GraficaDistribucion alarmas={alarmas.filter(a => {
-            if (celulaFiltro     && a.celula     !== celulaFiltro)     return false
-            if (microceldaFiltro && a.microcelda !== microceldaFiltro) return false
-            return true
-          })} />
+          <GraficaDistribucion
+            fetchError={distError}
+            alarmas={alarmas.filter(a => {
+              if (celulaFiltro     && a.celula     !== celulaFiltro)     return false
+              if (microceldaFiltro && a.microcelda !== microceldaFiltro) return false
+              return true
+            })}
+          />
 
           {/* Línea: evolución de retrasos */}
           {serieLinea.length > 0 && (
