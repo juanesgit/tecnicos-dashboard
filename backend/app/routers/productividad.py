@@ -2,7 +2,7 @@
 
 Dimensiones del score (4):
   - Avance      : OTs cerradas (completado + no_completado) / ejecutables, ponderado por cuota
-  - Efectividad : OTs completadas / ejecutables (escala 0..1/n — nunca null)
+  - Efectividad : OTs completadas / (completadas + no completadas) — sobre OTs cerradas
   - Velocidad   : proyección de avance ponderado a las 18:00 según ritmo actual
   - Cumplimiento: % de OTs completadas iniciadas antes de su fin planificado (a tiempo)
 """
@@ -213,8 +213,9 @@ def _calcular_productividad(celula: Optional[str] = None) -> dict:
             peso_ejecutable = float(grp.loc[grp["is_ejecutable"], "peso"].sum())
             avance = round(peso_cerradas / peso_ejecutable * 100, 1) if peso_ejecutable > 0 else 0.0
 
-            # Efectividad: completado / ejecutable (nunca null)
-            efectividad = round(com / ejecutable_count * 100, 1) if ejecutable_count > 0 else 0.0
+            # Efectividad: completado / (completado + no_completado) — OTs ya cerradas
+            cerradas_count = com + nc
+            efectividad = round(com / cerradas_count * 100, 1) if cerradas_count > 0 else None
 
             # Velocidad: proyección avance ponderado a 18:00
             peso_por_cerrar = peso_ejecutable - peso_cerradas
@@ -263,7 +264,8 @@ def _calcular_productividad(celula: Optional[str] = None) -> dict:
             peso_cerradas   = float(grp_mc.loc[grp_mc["is_cerrada"],    "peso"].sum())
             peso_ejecutable = float(grp_mc.loc[grp_mc["is_ejecutable"], "peso"].sum())
             avance      = round(peso_cerradas / peso_ejecutable * 100, 1) if peso_ejecutable > 0 else 0.0
-            efectividad = round(com / ejecutable_count * 100, 1) if ejecutable_count > 0 else 0.0
+            cerradas_count_mc = com + nc
+            efectividad = round(com / cerradas_count_mc * 100, 1) if cerradas_count_mc > 0 else None
 
             peso_por_cerrar = peso_ejecutable - peso_cerradas
             velocidad = _proyectar_cierre(current_min, peso_cerradas, peso_por_cerrar)
@@ -320,7 +322,7 @@ async def productividad_tecnicos(
     Métricas de productividad por técnico y microcelda (4 dimensiones).
 
     - **avance**      : % OTs cerradas ponderadas por cuota / ejecutables ponderadas
-    - **efectividad** : % OTs completadas / ejecutables (0..1/n — nunca null)
+    - **efectividad** : % OTs completadas / (completadas + no completadas) — null si no hay cerradas
     - **velocidad**   : % avance ponderado proyectado a las 18:00 según ritmo actual
     - **cumplimiento**: % OTs completadas iniciadas antes de su fin planificado
     """
