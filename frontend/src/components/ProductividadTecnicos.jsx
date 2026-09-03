@@ -77,7 +77,7 @@ function GrupoMicrocelda({ microcelda, celula, tecnicos, weights }) {
   const tecsConScore = tecnicos
     .filter(t => t.microcelda === microcelda && t.celula === celula)
     .map(t => ({ ...t, score: computeScore(t, weights) }))
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => a.score - b.score)
 
   if (!tecsConScore.length) return null
 
@@ -179,7 +179,7 @@ export default function ProductividadTecnicos({ porTecnico = [], weights, loadin
       ? Math.round(tecs.reduce((s, t) => s + computeScore(t, weights), 0) / tecs.length)
       : 0
     return { ...g, avgScore: avg }
-  }).sort((a, b) => b.avgScore - a.avgScore)
+  }).sort((a, b) => a.avgScore - b.avgScore)
 
   const totalTecnicos = new Set(porTecnico.map(t => t.tecnico)).size
 
