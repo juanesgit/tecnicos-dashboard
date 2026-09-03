@@ -4,7 +4,7 @@ Dimensiones del score (4):
   - Avance      : OTs cerradas (completado + no_completado) / ejecutables, ponderado por cuota
   - Efectividad : OTs completadas / (completadas + no completadas) — sobre OTs cerradas
   - Velocidad   : proyección de avance ponderado a las 18:00 según ritmo actual
-  - Cumplimiento: % de OTs completadas iniciadas antes de su fin planificado (a tiempo)
+  - Cumplimiento: % de OTs cerradas cuya duración real ≤ cuota_norma (time slot)
 """
 import asyncio
 from datetime import datetime
@@ -64,17 +64,47 @@ def _proyectar_cierre(current_min: int, peso_cerradas: float, peso_por_cerrar: f
     return round(min(100.0, ((peso_cerradas + ritmo * restantes) / peso_total) * 100), 1)
 
 
-def _parse_fin_planificado(inicio_fin_str: str) -> Optional[str]:
-    """Extrae el tiempo fin de 'HH:MM - HH:MM'. Retorna 'HH:MM' o None."""
+def _build_cumplimiento_flag(df: pd.DataFrame, tz) -> pd.Series:
+    """
+    Calcula si cada OT cerrada cumplió su time slot.
+    Regla: (fin_real − inicio_real) ≤ cuota_norma_raw minutos.
+    Solo aplica a OTs con cuota_norma_raw conocida (>0) y estado cerrado.
+    Retorna Series de bool/None con el mismo índice que df.
+    """
+    result = pd.Series([None] * len(df), index=df.index, dtype=object)
+
+    # OTs cerradas con cuota definida
+    cuota_num = pd.to_numeric(df["cuota_norma_raw"], errors="coerce")
+    mask = (
+        df["estado_norm"].isin(["completado", "no_completado"]) &
+        cuota_num.notna() &
+        (cuota_num > 0)
+    )
+    if not mask.any():
+        return result
+
+    # Construir datetimes desde Fecha + Inicio y Fecha + fin_str
+    fecha_str = pd.to_datetime(df.loc[mask, "Fecha"], errors="coerce").dt.strftime("%Y-%m-%d")
+    inicio_str = df.loc[mask, "Inicio"].astype(str).str.strip()
+    fin_split = df.loc[mask, "Inicio - Fin"].astype(str).str.split(" - ", n=1, expand=True)
+    fin_str = fin_split[1].fillna("").str.strip() if 1 in fin_split.columns else pd.Series("", index=mask[mask].index)
+    # Usar inicio cuando fin está vacío
+    fin_str = fin_str.where(fin_str != "", inicio_str)
+
+    ini_dt = pd.to_datetime(fecha_str + " " + inicio_str, errors="coerce")
+    fin_dt = pd.to_datetime(fecha_str + " " + fin_str,   errors="coerce")
+
     try:
-        partes = str(inicio_fin_str or "").split(" - ")
-        if len(partes) >= 2:
-            fin = partes[1].strip()
-            if len(fin) == 5 and fin[2] == ":":
-                return fin
+        ini_dt = ini_dt.dt.tz_localize(tz)
+        fin_dt = fin_dt.dt.tz_localize(tz)
     except Exception:
         pass
-    return None
+
+    duracion_min = (fin_dt - ini_dt).dt.total_seconds() / 60
+    a_tiempo = duracion_min <= cuota_num[mask]
+
+    result[mask] = a_tiempo
+    return result
 
 
 def _calcular_productividad(celula: Optional[str] = None) -> dict:
@@ -97,6 +127,8 @@ def _calcular_productividad(celula: Optional[str] = None) -> dict:
                 return {"por_tecnico": [], "por_microcelda": [], "hora_corte": hora_actual}
 
             # ── Query con JOIN a wf_time_slot para obtener cuota por subtipo ──
+            # cuota_norma_raw: NULL si no tiene time slot (no se mide cumplimiento)
+            # cuota_norma    : COALESCE(1) solo para peso de avance
             cursor.execute("""
                 SELECT
                     w.`Técnico`,
@@ -107,7 +139,8 @@ def _calcular_productividad(celula: Optional[str] = None) -> dict:
                     w.`Inicio - Fin`,
                     w.`Nodo`,
                     w.`Fecha`,
-                    COALESCE(ts.cuota, 1) AS cuota_norma
+                    ts.cuota                  AS cuota_norma_raw,
+                    COALESCE(ts.cuota, 1)     AS cuota_norma
                 FROM wf_futuro_pruebas w
                 LEFT JOIN wf_time_slot ts
                     ON TRIM(w.`Subtipo de la Orden de Trabajo`)
@@ -152,23 +185,9 @@ def _calcular_productividad(celula: Optional[str] = None) -> dict:
             ["completado", "no_completado", "iniciado", "pendiente", "suspendido"]
         )
 
-        # ── Cumplimiento: inicio real <= fin planificado ──────────────────────
-        df["fin_planificado"] = df["Inicio - Fin"].apply(_parse_fin_planificado)
-        df["inicio_str"]      = df["Inicio"].astype(str).str.strip()
-
-        def _a_tiempo(row):
-            if not row["is_completado"]:
-                return None
-            fin = row["fin_planificado"]
-            ini = row["inicio_str"]
-            if not fin or not ini or fin in ("nan", "") or ini in ("nan", ""):
-                return None
-            try:
-                return ini <= fin   # HH:MM — comparación lexicográfica válida en 24 h
-            except Exception:
-                return None
-
-        df["a_tiempo"] = df.apply(_a_tiempo, axis=1)
+        # ── Cumplimiento: duración real ≤ cuota_norma (time slot) ───────────────
+        df["cuota_norma_raw"] = pd.to_numeric(df["cuota_norma_raw"], errors="coerce")
+        df["a_tiempo"] = _build_cumplimiento_flag(df, tz)
 
         # ── Mapeo de zona ─────────────────────────────────────────────────────
         zona_map = get_zona_map()
