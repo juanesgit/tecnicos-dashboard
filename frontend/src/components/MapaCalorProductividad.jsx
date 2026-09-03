@@ -82,7 +82,7 @@ export default function MapaCalorProductividad({ porMicrocelda = [], weights, lo
 
   const sorted = [...porMicrocelda]
     .map(mc => ({ ...mc, score: computeScore(mc, weights) }))
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => a.score - b.score)
 
   return (
     <div className="space-y-2">
