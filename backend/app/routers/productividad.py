@@ -101,9 +101,18 @@ def _build_cumplimiento_flag(df: pd.DataFrame, tz) -> pd.Series:
         pass
 
     duracion_min = (fin_dt - ini_dt).dt.total_seconds() / 60
-    a_tiempo = duracion_min <= cuota_num[mask]
 
-    result[mask] = a_tiempo
+    # Solo OTs con duración real registrada (fin > inicio)
+    # — las que tienen Inicio-Fin igual (ej. "05:52 - 05:52") se excluyen del denominador
+    mask_dur = duracion_min > 0
+    mask_final = mask.copy()
+    mask_final[mask] = mask_dur.values
+
+    if not mask_final.any():
+        return result
+
+    a_tiempo = duracion_min[mask_dur] <= cuota_num[mask][mask_dur.values]
+    result[mask_final] = a_tiempo
     return result
 
 

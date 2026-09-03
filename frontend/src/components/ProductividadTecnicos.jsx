@@ -208,9 +208,9 @@ export default function ProductividadTecnicos({ porTecnico = [], weights, loadin
       {/* Leyenda */}
       <div className="flex items-center gap-3 justify-center pt-1 text-[10px] text-slate-400 font-medium flex-wrap">
         <span>Av = Avance (pond. cuota)</span>
-        <span>Ef = Efectividad</span>
+        <span>Ef = Completadas/Cerradas</span>
         <span>Ve = Velocidad</span>
-        <span>Cu = Cumplimiento</span>
+        <span>Cu = Cumpl. time slot</span>
       </div>
     </div>
   )

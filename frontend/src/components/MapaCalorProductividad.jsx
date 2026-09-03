@@ -138,7 +138,7 @@ export default function MapaCalorProductividad({ porMicrocelda = [], weights, lo
                   { label: 'Avance',       val: mc.avance,       sub: `${mc.cerradas} cerradas / ${mc.ejecutable} ejecutables (ponderado por cuota)` },
                   { label: 'Efectividad',  val: mc.efectividad,  sub: `${mc.completado} completadas / ${mc.cerradas} cerradas (completado + no completado)` },
                   { label: 'Velocidad',    val: mc.velocidad,    sub: 'Proyección avance ponderado a las 18:00' },
-                  { label: 'Cumplimiento', val: mc.cumplimiento, sub: 'OTs cerradas cuya duración real ≤ cuota del time slot' },
+                  { label: 'Cumplimiento', val: mc.cumplimiento, sub: 'OTs con duración real ≤ cuota del time slot (excluye OTs sin fin registrado)' },
                 ].map(({ label, val, sub }) => {
                   const c = cellColor(val)
                   return (
