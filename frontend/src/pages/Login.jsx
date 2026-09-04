@@ -35,26 +35,34 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-800 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm">
-        {/* Logo */}
-        <div className="flex flex-col items-center mb-8">
-          <div className="w-16 h-16 rounded-2xl bg-slate-700 flex items-center justify-center mb-3 shadow-lg">
-            <svg className="w-8 h-8 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          </div>
-          <h1 className="text-white font-bold text-xl">Técnicos Dashboard</h1>
-          <p className="text-slate-400 text-sm mt-1">Región Occidente</p>
+    <div
+      className="min-h-screen flex items-center justify-center p-4"
+      style={{ background: '#0b0a18' }}
+    >
+      <div className="w-full max-w-md">
+
+        {/* Logo — imagen original */}
+        <div className="flex justify-center mb-10">
+          <img
+            src="/own360-logo.png"
+            alt="OWN360"
+            style={{ width: '100%', height: 'auto', objectFit: 'contain' }}
+          />
         </div>
 
         {/* Card */}
-        <div className="bg-white border border-gray-200 rounded-2xl p-8 shadow-sm">
-          <h2 className="text-slate-800 font-semibold text-lg mb-6">Iniciar sesión</h2>
+        <div
+          className="rounded-2xl p-8 shadow-2xl"
+          style={{
+            background: '#160B2E',
+            border: '1px solid rgba(92,20,212,0.25)',
+          }}
+        >
+          <h2 className="font-semibold text-lg mb-6 text-white">Iniciar sesión</h2>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              <label className="block text-sm font-medium mb-1.5" style={{ color: '#A096C6' }}>
                 Usuario
               </label>
               <input
@@ -64,12 +72,18 @@ export default function Login() {
                 onChange={handleChange}
                 autoComplete="username"
                 placeholder="tu_usuario"
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent transition-shadow"
+                className="w-full px-4 py-2.5 rounded-xl text-sm text-white placeholder-white/20 focus:outline-none transition-all"
+                style={{
+                  background: 'rgba(92,20,212,0.12)',
+                  border: '1px solid rgba(92,20,212,0.3)',
+                }}
+                onFocus={e => e.target.style.borderColor = '#7B3EF4'}
+                onBlur={e  => e.target.style.borderColor = 'rgba(92,20,212,0.3)'}
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              <label className="block text-sm font-medium mb-1.5" style={{ color: '#A096C6' }}>
                 Contraseña
               </label>
               <input
@@ -79,14 +93,23 @@ export default function Login() {
                 onChange={handleChange}
                 autoComplete="current-password"
                 placeholder="••••••••"
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent transition-shadow"
+                className="w-full px-4 py-2.5 rounded-xl text-sm text-white placeholder-white/20 focus:outline-none transition-all"
+                style={{
+                  background: 'rgba(92,20,212,0.12)',
+                  border: '1px solid rgba(92,20,212,0.3)',
+                }}
+                onFocus={e => e.target.style.borderColor = '#7B3EF4'}
+                onBlur={e  => e.target.style.borderColor = 'rgba(92,20,212,0.3)'}
               />
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-slate-800 hover:bg-slate-700 disabled:bg-slate-400 text-white font-semibold py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
+              className="w-full font-semibold py-3 rounded-xl transition-all flex items-center justify-center gap-2 text-white mt-2"
+              style={{ background: loading ? '#3D1A8C' : '#5C14D4', opacity: loading ? 0.7 : 1 }}
+              onMouseEnter={e => { if (!loading) e.currentTarget.style.background = '#7B3EF4' }}
+              onMouseLeave={e => { if (!loading) e.currentTarget.style.background = '#5C14D4' }}
             >
               {loading ? (
                 <>
@@ -96,14 +119,12 @@ export default function Login() {
                   </svg>
                   Ingresando…
                 </>
-              ) : (
-                'Ingresar'
-              )}
+              ) : 'Ingresar'}
             </button>
           </form>
         </div>
 
-        <p className="text-center text-slate-500 text-xs mt-6">
+        <p className="text-center text-xs mt-6" style={{ color: 'rgba(160,150,198,0.4)' }}>
           Acceso restringido al personal autorizado
         </p>
       </div>

@@ -24,7 +24,7 @@ export default function Navbar() {
   const { user, logout } = useAuth()
   const { setActiveTab } = useTabStore()
   const [menuOpen, setMenuOpen]     = useState(false)
-  const [pushStatus, setPushStatus] = useState('idle') // idle | subscribed | unsupported | loading
+  const [pushStatus, setPushStatus] = useState('idle')
 
   useEffect(() => {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
@@ -73,33 +73,39 @@ export default function Navbar() {
     toast.success('Sesión cerrada')
   }
 
-  const isAdmin = user?.role === 'admin'
-
   return (
-    <header className="bg-slate-800 text-white h-14 sticky top-0 z-40 flex items-center px-4 shadow-md">
-      {/* Logo */}
-      <div className="flex items-center gap-2 flex-1">
-        <div className="w-7 h-7 rounded-lg bg-slate-600 flex items-center justify-center text-xs font-bold select-none">
-          TR
-        </div>
-        <span className="font-semibold text-sm tracking-wide hidden sm:block">Técnicos Dashboard</span>
-        <span className="font-semibold text-sm tracking-wide sm:hidden">Técnicos</span>
+    <header
+      className="h-14 sticky top-0 z-40 flex items-center px-4 shadow-lg"
+      style={{ background: '#0b0a18', borderBottom: '1px solid rgba(123,62,244,0.2)' }}
+    >
+      {/* Logo — imagen original, recortada al alto del navbar */}
+      <div className="flex-1" style={{ height: 44, overflow: 'hidden', display: 'flex', alignItems: 'center' }}>
+        <img
+          src="/own360-logo.png"
+          alt="OWN360"
+          style={{ height: 80, width: 'auto', transform: 'scale(1.05)', transformOrigin: 'left center', flexShrink: 0 }}
+        />
       </div>
 
       {/* Menú usuario */}
       <div className="relative">
         <button
           onClick={() => setMenuOpen(v => !v)}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-xl hover:bg-slate-700 transition-colors text-sm"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-xl transition-colors text-sm text-white/80 hover:bg-white/5"
         >
-          <div className="w-7 h-7 rounded-full bg-slate-600 flex items-center justify-center text-xs font-bold uppercase">
+          <div
+            className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold uppercase text-white"
+            style={{ background: '#5C14D4' }}
+          >
             {user?.username?.[0] ?? 'U'}
           </div>
           <span className="hidden sm:block max-w-[120px] truncate">
             {user?.full_name || user?.username}
           </span>
-          <svg className={`w-4 h-4 transition-transform ${menuOpen ? 'rotate-180' : ''}`}
-            fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg
+            className={`w-4 h-4 text-white/40 transition-transform ${menuOpen ? 'rotate-180' : ''}`}
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
         </button>
@@ -107,30 +113,31 @@ export default function Navbar() {
         {menuOpen && (
           <>
             <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-            <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-xl shadow-lg border border-slate-100 z-20 overflow-hidden">
+            <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-xl shadow-xl border border-slate-100 z-20 overflow-hidden">
 
               {/* Cabecera */}
-              <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
-                <p className="text-xs text-slate-500">Conectado como</p>
-                <p className="text-sm font-semibold text-slate-800 truncate">{user?.full_name || user?.username}</p>
-                <p className="text-xs text-slate-400">{ROLE_LABEL[user?.role] || user?.role}</p>
+              <div className="px-4 py-3 border-b border-slate-100" style={{ background: '#0b0a18' }}>
+                <p className="text-xs" style={{ color: 'rgba(160,150,198,0.7)' }}>Conectado como</p>
+                <p className="text-sm font-semibold truncate text-white">{user?.full_name || user?.username}</p>
+                <p className="text-xs" style={{ color: '#A096C6' }}>{ROLE_LABEL[user?.role] || user?.role}</p>
                 {user?.celula && (
-                  <p className="text-[10px] text-slate-400 mt-0.5">
+                  <p className="text-[10px] mt-0.5" style={{ color: 'rgba(160,150,198,0.5)' }}>
                     {user.celula}{user.microcelda ? ` · ${user.microcelda}` : ''}
                   </p>
                 )}
               </div>
 
               <div className="py-1">
-                {/* Notificaciones push */}
                 {pushStatus !== 'unsupported' && (
                   <button
                     onClick={handlePushToggle}
                     disabled={pushStatus === 'loading'}
                     className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
                   >
-                    <svg className={`w-4 h-4 shrink-0 ${pushStatus === 'subscribed' ? 'text-emerald-500' : 'text-slate-400'}`}
-                      fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg
+                      className={`w-4 h-4 shrink-0 ${pushStatus === 'subscribed' ? 'text-emerald-500' : 'text-slate-400'}`}
+                      fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                    >
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                         d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                     </svg>
@@ -141,7 +148,6 @@ export default function Navbar() {
                 )}
               </div>
 
-              {/* Cerrar sesión */}
               <div className="border-t border-slate-100 py-1">
                 <button
                   onClick={handleLogout}
