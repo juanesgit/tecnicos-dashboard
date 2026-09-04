@@ -37,7 +37,7 @@ export default function Login() {
   return (
     <div
       className="min-h-screen flex items-center justify-center p-4"
-      style={{ background: '#0b0a18' }}
+      style={{ background: '#0b0b0b' }}
     >
       <div className="w-full max-w-md">
 
@@ -54,15 +54,15 @@ export default function Login() {
         <div
           className="rounded-2xl p-8 shadow-2xl"
           style={{
-            background: '#160B2E',
-            border: '1px solid rgba(92,20,212,0.25)',
+            background: '#111111',
+            border: '1px solid rgba(204,39,53,0.22)',
           }}
         >
-          <h2 className="font-semibold text-lg mb-6 text-white">Iniciar sesión</h2>
+          <h2 className="font-semibold text-lg mb-6 text-white text-center">Iniciar sesión</h2>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium mb-1.5" style={{ color: '#A096C6' }}>
+              <label className="block text-sm font-medium mb-1.5" style={{ color: '#FFFFFF' }}>
                 Usuario
               </label>
               <input
@@ -74,16 +74,16 @@ export default function Login() {
                 placeholder="tu_usuario"
                 className="w-full px-4 py-2.5 rounded-xl text-sm text-white placeholder-white/20 focus:outline-none transition-all"
                 style={{
-                  background: 'rgba(92,20,212,0.12)',
-                  border: '1px solid rgba(92,20,212,0.3)',
+                  background: 'rgba(204,39,53,0.1)',
+                  border: '1px solid rgba(204,39,53,0.3)',
                 }}
-                onFocus={e => e.target.style.borderColor = '#7B3EF4'}
-                onBlur={e  => e.target.style.borderColor = 'rgba(92,20,212,0.3)'}
+                onFocus={e => e.target.style.borderColor = '#E03040'}
+                onBlur={e  => e.target.style.borderColor = 'rgba(204,39,53,0.3)'}
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1.5" style={{ color: '#A096C6' }}>
+              <label className="block text-sm font-medium mb-1.5" style={{ color: '#FFFFFF' }}>
                 Contraseña
               </label>
               <input
@@ -95,11 +95,11 @@ export default function Login() {
                 placeholder="••••••••"
                 className="w-full px-4 py-2.5 rounded-xl text-sm text-white placeholder-white/20 focus:outline-none transition-all"
                 style={{
-                  background: 'rgba(92,20,212,0.12)',
-                  border: '1px solid rgba(92,20,212,0.3)',
+                  background: 'rgba(204,39,53,0.1)',
+                  border: '1px solid rgba(204,39,53,0.3)',
                 }}
-                onFocus={e => e.target.style.borderColor = '#7B3EF4'}
-                onBlur={e  => e.target.style.borderColor = 'rgba(92,20,212,0.3)'}
+                onFocus={e => e.target.style.borderColor = '#E03040'}
+                onBlur={e  => e.target.style.borderColor = 'rgba(204,39,53,0.3)'}
               />
             </div>
 
@@ -107,9 +107,9 @@ export default function Login() {
               type="submit"
               disabled={loading}
               className="w-full font-semibold py-3 rounded-xl transition-all flex items-center justify-center gap-2 text-white mt-2"
-              style={{ background: loading ? '#3D1A8C' : '#5C14D4', opacity: loading ? 0.7 : 1 }}
-              onMouseEnter={e => { if (!loading) e.currentTarget.style.background = '#7B3EF4' }}
-              onMouseLeave={e => { if (!loading) e.currentTarget.style.background = '#5C14D4' }}
+              style={{ background: loading ? '#8C1A22' : '#CC2735', opacity: loading ? 0.7 : 1 }}
+              onMouseEnter={e => { if (!loading) e.currentTarget.style.background = '#E03040' }}
+              onMouseLeave={e => { if (!loading) e.currentTarget.style.background = '#CC2735' }}
             >
               {loading ? (
                 <>

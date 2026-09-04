@@ -29,8 +29,8 @@ export default function Own360Logo({
   const isDark = theme === 'dark'
 
   const ownColor  = isDark ? '#FFFFFF' : '#0C071C'
-  const s360Color = isDark ? '#9B6BFA' : '#5C14D4'
-  const tagColor  = isDark ? 'rgba(237,232,253,.38)' : 'rgba(12,7,28,.32)'
+  const s360Color = isDark ? '#E05060' : '#CC2735'
+  const tagColor  = isDark ? 'rgba(204,39,53,.38)' : 'rgba(12,7,28,.32)'
 
   // IDs únicos para evitar colisiones entre instancias del mismo tamaño
   const gradId = `own360-g-${size}-${isDark ? 'd' : 'l'}`
@@ -58,9 +58,9 @@ export default function Own360Logo({
         <defs>
           {/* Degradado vertical: claro arriba → oscuro abajo (igual que la imagen) */}
           <linearGradient id={gradId} x1="0.5" y1="0" x2="0.5" y2="1">
-            <stop offset="0%"   stopColor="#A87EFA" />
-            <stop offset="55%"  stopColor="#6B24E8" />
-            <stop offset="100%" stopColor="#3E0E9C" />
+            <stop offset="0%"   stopColor="#E05060" />
+            <stop offset="55%"  stopColor="#CC2735" />
+            <stop offset="100%" stopColor="#8C1A22" />
           </linearGradient>
         </defs>
 
@@ -80,7 +80,7 @@ export default function Own360Logo({
         />
 
         {/* Punto señal en las 11 en punto (lado izquierdo de la apertura) */}
-        <circle cx="15" cy="8.41" r={c.dot} fill="#00C9A8" />
+        <circle cx="15" cy="8.41" r={c.dot} fill="#FFFFFF" />
       </svg>
 
       {/* ── Wordmark ── */}

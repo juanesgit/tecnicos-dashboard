@@ -76,9 +76,9 @@ export default function Navbar() {
   return (
     <header
       className="h-14 sticky top-0 z-40 flex items-center px-4 shadow-lg"
-      style={{ background: '#0b0a18', borderBottom: '1px solid rgba(123,62,244,0.2)' }}
+      style={{ background: '#0b0b0b', borderBottom: '1px solid rgba(204,39,53,0.25)' }}
     >
-      {/* Logo — imagen original, recortada al alto del navbar */}
+      {/* Logo */}
       <div className="flex-1" style={{ height: 44, overflow: 'hidden', display: 'flex', alignItems: 'center' }}>
         <img
           src="/own360-logo.png"
@@ -95,7 +95,7 @@ export default function Navbar() {
         >
           <div
             className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold uppercase text-white"
-            style={{ background: '#5C14D4' }}
+            style={{ background: '#CC2735' }}
           >
             {user?.username?.[0] ?? 'U'}
           </div>
@@ -116,7 +116,7 @@ export default function Navbar() {
             <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-xl shadow-xl border border-slate-100 z-20 overflow-hidden">
 
               {/* Cabecera */}
-              <div className="px-4 py-3 border-b border-slate-100" style={{ background: '#0b0a18' }}>
+              <div className="px-4 py-3 border-b border-slate-100" style={{ background: '#0b0b0b' }}>
                 <p className="text-xs" style={{ color: 'rgba(160,150,198,0.7)' }}>Conectado como</p>
                 <p className="text-sm font-semibold truncate text-white">{user?.full_name || user?.username}</p>
                 <p className="text-xs" style={{ color: '#A096C6' }}>{ROLE_LABEL[user?.role] || user?.role}</p>
