@@ -16,6 +16,7 @@ import Historico from './Historico'
 import AvanceMapaView from '../components/AvanceMapaView'
 import Prediccion6pm from '../components/Prediccion6pm'
 import RetrasoActualView from '../components/RetrasoActualView'
+import MapaCalorEfectividad from '../components/MapaCalorEfectividad'
 import Usuarios from './Usuarios'
 import Admin from './Admin'
 import Alarmas from './Alarmas'
@@ -165,13 +166,17 @@ function MapasTab({ rows, filtros, loading, onDetalle, avance, avanceLoading }) 
           activeColor="bg-red-600 text-white">
           🔴 Retrasos actuales
         </SubTabBtn>
+        <SubTabBtn id="efectividad" current={subTab} onClick={setSubTab}
+          activeColor="bg-violet-600 text-white">
+          ✅ Efectividad
+        </SubTabBtn>
         <SubTabBtn id="prediccion" current={subTab} onClick={setSubTab}
           activeColor="bg-slate-800 text-white">
           🏁 Predicción 6pm
         </SubTabBtn>
         <SubTabBtn id="avance" current={subTab} onClick={setSubTab}
           activeColor="bg-emerald-600 text-white">
-          📊 Avance operación
+          📊 Avance
         </SubTabBtn>
       </div>
 
@@ -195,6 +200,10 @@ function MapasTab({ rows, filtros, loading, onDetalle, avance, avanceLoading }) 
           loading={avanceLoading}
           rows={loading ? [] : rows}
         />
+      )}
+
+      {subTab === 'efectividad' && (
+        <MapaCalorEfectividad celulaFiltro={celulaFiltro} />
       )}
     </div>
   )

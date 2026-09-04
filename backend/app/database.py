@@ -104,6 +104,8 @@ async def _migrate_users():
         "ALTER TABLE alarmas ADD COLUMN ot VARCHAR(80)",
         # last_login en users para tier de asignación de alarmas
         "ALTER TABLE users ADD COLUMN last_login DATETIME",
+        # disponible: indica si el técnico/supervisor está disponible para recibir alarmas
+        "ALTER TABLE users ADD COLUMN disponible INTEGER NOT NULL DEFAULT 0",
     ]
     async with engine.begin() as conn:
         for sql in migrations:

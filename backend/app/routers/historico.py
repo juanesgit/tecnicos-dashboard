@@ -205,6 +205,82 @@ async def historico_prediccion(
     }
 
 
+@router.get("/efectividad")
+async def historico_efectividad(
+    horas: int = Query(default=4, ge=1, le=48),
+    celula: Optional[str] = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Efectividad OT histórica por microcelda: completadas / (completadas + no_completadas)."""
+    from app.models.snapshot import SnapshotMicrocelda
+    desde = _tz_now() - timedelta(hours=horas)
+
+    if current_user.role in ("lider_celula", "supervisor_microcelda") and current_user.celula:
+        celula = current_user.celula
+
+    q = (
+        select(SnapshotGlobal.captured_at, SnapshotMicrocelda)
+        .join(SnapshotMicrocelda, SnapshotMicrocelda.snapshot_id == SnapshotGlobal.id)
+        .where(SnapshotGlobal.captured_at >= desde)
+    )
+    if celula:
+        q = q.where(SnapshotMicrocelda.celula == celula)
+
+    q = q.order_by(SnapshotGlobal.captured_at)
+    result = await db.execute(q)
+    rows = result.all()
+
+    from collections import defaultdict
+    series: dict = defaultdict(list)
+    for captured_at, sm in rows:
+        cerradas = sm.ot_completado + sm.ot_no_completado
+        pct = round(sm.ot_completado / cerradas * 100, 1) if cerradas > 0 else None
+        series[sm.microcelda].append({
+            "t":               captured_at.strftime("%H:%M"),
+            "celula":          sm.celula,
+            "completado":      sm.ot_completado,
+            "no_completado":   sm.ot_no_completado,
+            "pct_efectividad": pct,
+        })
+
+    all_times = sorted({p["t"] for pts in series.values() for p in pts})
+
+    # ── Series por ciudad (SnapshotCiudad ya tiene ot_completado / ot_no_completado) ──
+    from app.models.snapshot import SnapshotCiudad
+    qc = (
+        select(SnapshotGlobal.captured_at, SnapshotCiudad)
+        .join(SnapshotCiudad, SnapshotCiudad.snapshot_id == SnapshotGlobal.id)
+        .where(SnapshotGlobal.captured_at >= desde)
+    )
+    if celula:
+        qc = qc.where(SnapshotCiudad.celula == celula)
+    qc = qc.order_by(SnapshotGlobal.captured_at)
+    result_c = await db.execute(qc)
+    rows_c = result_c.all()
+
+    series_ciudad: dict = defaultdict(list)
+    for captured_at, sc in rows_c:
+        cerradas_c = sc.ot_completado + sc.ot_no_completado
+        pct_c = round(sc.ot_completado / cerradas_c * 100, 1) if cerradas_c > 0 else None
+        series_ciudad[sc.ciudad].append({
+            "t":               captured_at.strftime("%H:%M"),
+            "celula":          sc.celula,
+            "microcelda":      sc.microcelda,
+            "completado":      sc.ot_completado,
+            "no_completado":   sc.ot_no_completado,
+            "pct_efectividad": pct_c,
+        })
+
+    return {
+        "horas":         horas,
+        "celula":        celula,
+        "tiempos":       all_times,
+        "series":        dict(series),
+        "series_ciudad": dict(series_ciudad),
+    }
+
+
 @router.get("/ciudades")
 async def historico_ciudades(
     horas: int = Query(default=8, ge=1, le=48),
