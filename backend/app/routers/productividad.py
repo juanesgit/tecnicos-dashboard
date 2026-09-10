@@ -167,8 +167,17 @@ def _calcular_productividad(celula: Optional[str] = None) -> dict:
 
         df = pd.DataFrame(results)
 
+        # ── Log diagnóstico: tipos de actividad antes del filtro ──────────────
+        tipos_raw = df["Tipo de Actividad"].value_counts()
+        print("[PRODUCTIVIDAD] Tipos de actividad en BD (antes de filtro):")
+        for tipo, cnt in tipos_raw.items():
+            marca = "EXCLUIDA" if _es_no_operativa(tipo) else "INCLUIDA"
+            print(f"  [{marca}] {tipo!r}  ({cnt})")
+
         # Excluir actividades no operativas
+        df_excluidas = df[df["Tipo de Actividad"].apply(_es_no_operativa)]
         df = df[~df["Tipo de Actividad"].apply(_es_no_operativa)].copy()
+        print(f"[PRODUCTIVIDAD] Registros excluidos: {len(df_excluidas)} | Incluidos en cálculo: {len(df)}")
         if df.empty:
             return {"por_tecnico": [], "por_microcelda": [], "hora_corte": hora_actual}
 
@@ -336,6 +345,40 @@ def _calcular_productividad(celula: Optional[str] = None) -> dict:
         print(f"[PRODUCTIVIDAD] ERROR: {e}", file=sys.stderr)
         print(traceback.format_exc(), file=sys.stderr)
         return {"por_tecnico": [], "por_microcelda": [], "hora_corte": hora_actual}
+    finally:
+        if connection:
+            connection.close()
+
+
+@router.get("/productividad/tipos-actividad")
+async def productividad_tipos_actividad():
+    """
+    Diagnóstico: devuelve los tipos de actividad del día con su estado (incluida/excluida).
+    Útil para verificar que el filtro de actividades no operativas funciona correctamente.
+    """
+    tz = pytz.timezone(settings.APP_TIMEZONE)
+    connection = None
+    try:
+        connection = get_mysql_connection()
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT `Tipo de Actividad`, COUNT(*) as cnt
+                FROM wf_futuro_pruebas
+                WHERE Origen IN ('REGION OCCIDENTE', 'PYMES OCCIDENTE')
+                  AND Fecha >= CURRENT_DATE()
+                GROUP BY `Tipo de Actividad`
+                ORDER BY cnt DESC
+            """)
+            rows = cursor.fetchall()
+        result = []
+        for r in rows:
+            t = r["Tipo de Actividad"] or "(null)"
+            result.append({
+                "tipo": t,
+                "cantidad": r["cnt"],
+                "excluida_del_calculo": bool(_es_no_operativa(t)),
+            })
+        return JSONResponse(content=result)
     finally:
         if connection:
             connection.close()
