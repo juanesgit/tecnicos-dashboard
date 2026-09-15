@@ -214,9 +214,9 @@ async def _capture_once():
         except Exception as avance_exc:
             logger.warning("[Snapshot] Error capturando avance OT: %s", avance_exc)
 
-        # ── Procesar alarmas en CADA captura (antes del dedup de snapshot) ──────
-        # Se ejecuta cada 5 min independientemente de si el snapshot cambia,
-        # porque los técnicos retrasados pueden cambiar aunque los totales sean iguales.
+        # ── Procesar alarmas en CADA captura (antes del snapshot) ──────────────
+        # Se ejecuta cada 5 min independientemente, porque los técnicos retrasados
+        # pueden cambiar aunque los totales sean iguales.
         try:
             from app.services.alarma_service import procesar_alarmas
             await procesar_alarmas(datos)
@@ -226,25 +226,16 @@ async def _capture_once():
         async with AsyncSessionLocal() as session:
             from sqlalchemy import select as sa_select
 
-            # ── Deduplicación: omitir si los conteos son idénticos al último snapshot ──
+            # Leer último snapshot solo para pasarlo a evaluar_y_notificar al final
             ultimo_result = await session.execute(
                 sa_select(SnapshotGlobal)
                 .order_by(SnapshotGlobal.captured_at.desc())
                 .limit(1)
             )
             ultimo = ultimo_result.scalar_one_or_none()
-            if (
-                ultimo is not None
-                and ultimo.total       == stats["total"]
-                and ultimo.con_retraso == stats["con_retraso"]
-                and ultimo.con_parada  == stats["con_parada"]
-            ):
-                logger.info(
-                    "[Snapshot] %s — sin cambios en datos (total=%d, retraso=%d), omitiendo.",
-                    now.strftime("%H:%M"), stats["total"], stats["con_retraso"]
-                )
-                return
 
+            # Sin deduplicación: siempre se persiste cada corte para garantizar
+            # datos frescos de avance OT, efectividad y cumplimiento en cada intervalo.
             snap = SnapshotGlobal(
                 captured_at      = now,
                 total            = stats["total"],
