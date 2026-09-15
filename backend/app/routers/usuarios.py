@@ -13,7 +13,7 @@ from app.services.auth import get_current_user, hash_password
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
 
-ROLES_VALIDOS = {"admin", "lider_celula", "supervisor_microcelda", "supervisor_ccot"}
+ROLES_VALIDOS = {"admin", "jefe_ccot", "lider_celula", "supervisor_microcelda", "supervisor_ccot"}
 
 
 def _only_admin(current_user: User = Depends(get_current_user)) -> User:
