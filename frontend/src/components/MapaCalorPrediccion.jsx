@@ -444,7 +444,11 @@ export default function MapaCalorPrediccion({ filtros = {}, rows = [], onDetalle
     }
   }, [horas, filtros.celula])
 
-  useEffect(() => { cargar() }, [cargar])
+  useEffect(() => {
+    cargar()
+    const id = setInterval(cargar, 2 * 60_000)
+    return () => clearInterval(id)
+  }, [cargar])
 
   // Fetch dedicado para ciudades desde /historico/ciudades
   useEffect(() => {

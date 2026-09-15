@@ -76,7 +76,11 @@ function MonitorTab() {
     }
   }, [])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => {
+    fetchData()
+    const id = setInterval(fetchData, 5 * 60_000)
+    return () => clearInterval(id)
+  }, [fetchData])
 
   const handleDelete = async (id) => {
     setDeleting(id)

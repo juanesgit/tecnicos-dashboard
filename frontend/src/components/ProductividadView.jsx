@@ -202,7 +202,11 @@ export default function ProductividadView({ celulaFiltro = '' }) {
     }
   }, [celulaFiltro])
 
-  useEffect(() => { cargar() }, [cargar])
+  useEffect(() => {
+    cargar()
+    const id = setInterval(cargar, 2 * 60_000)
+    return () => clearInterval(id)
+  }, [cargar])
 
   const porMicrocelda = data?.por_microcelda ?? []
   const porTecnico    = data?.por_tecnico    ?? []

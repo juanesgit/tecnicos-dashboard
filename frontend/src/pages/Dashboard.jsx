@@ -329,10 +329,11 @@ export default function Dashboard() {
         countRef.current = refreshSecs
         setCountdown(refreshSecs)
         fetchDatos()
+        fetchAvance()
       }
     }, 1000)
     return () => clearInterval(intervalRef.current)
-  }, [refreshSecs, fetchDatos])
+  }, [refreshSecs, fetchDatos, fetchAvance])
 
   /* ── Filtrado local ───────────────────────────────────────── */
   // Normalizar a minúsculas+trim para comparaciones de scope (el casing de MySQL

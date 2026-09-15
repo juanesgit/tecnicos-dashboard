@@ -197,7 +197,11 @@ export default function MapaCalorAvance({ celulaFiltro = '', microceldaFiltro = 
     }
   }, [horas, celulaFiltro])
 
-  useEffect(() => { cargar() }, [cargar])
+  useEffect(() => {
+    cargar()
+    const id = setInterval(cargar, 2 * 60_000)
+    return () => clearInterval(id)
+  }, [cargar])
 
   useEffect(() => {
     if (!data || !scrollRef.current) return

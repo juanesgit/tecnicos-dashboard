@@ -126,7 +126,11 @@ export default function AvanceMapaView({ celulaFiltro = '', rows = [] }) {
     }
   }, [celulaFiltro])
 
-  useEffect(() => { cargar() }, [cargar])
+  useEffect(() => {
+    cargar()
+    const id = setInterval(cargar, 2 * 60_000)
+    return () => clearInterval(id)
+  }, [cargar])
 
   const resumen   = avance?.resumen    ?? {}
   const porCelula = avance?.por_celula ?? []

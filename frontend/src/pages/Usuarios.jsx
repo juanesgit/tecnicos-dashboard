@@ -472,7 +472,11 @@ export default function Usuarios() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    const id = setInterval(load, 60_000)
+    return () => clearInterval(id)
+  }, [])
 
   const toggleActivo = async (u) => {
     setToggling(u.id)
