@@ -2,6 +2,48 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import api from '../services/api'
 import toast from 'react-hot-toast'
 
+/* ── Paginador reutilizable ── */
+function Paginador({ page, total, pageSize, onChange }) {
+  const pages = Math.ceil(total / pageSize)
+  if (pages <= 1) return null
+  return (
+    <div className="flex items-center justify-between pt-2">
+      <span className="text-[10px] text-slate-400">
+        {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} de {total}
+      </span>
+      <div className="flex gap-1">
+        <button
+          onClick={() => onChange(page - 1)}
+          disabled={page === 1}
+          className="px-2.5 py-1 rounded-lg border border-slate-200 text-xs text-slate-600 disabled:opacity-30 hover:bg-slate-50"
+        >
+          ‹
+        </button>
+        {Array.from({ length: pages }, (_, i) => i + 1).map(p => (
+          <button
+            key={p}
+            onClick={() => onChange(p)}
+            className={`px-2.5 py-1 rounded-lg border text-xs font-semibold ${
+              p === page
+                ? 'bg-indigo-600 text-white border-indigo-600'
+                : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            {p}
+          </button>
+        ))}
+        <button
+          onClick={() => onChange(page + 1)}
+          disabled={page === pages}
+          className="px-2.5 py-1 rounded-lg border border-slate-200 text-xs text-slate-600 disabled:opacity-30 hover:bg-slate-50"
+        >
+          ›
+        </button>
+      </div>
+    </div>
+  )
+}
+
 /* ── Helpers ── */
 function Badge({ children, color = 'slate' }) {
   const cls = {
@@ -117,7 +159,14 @@ function ModalReasignar({ alarma, supervisores, onConfirm, onClose }) {
 /* ══════════════════════════════════════════════════════════════
    TAB: Supervisores
 ══════════════════════════════════════════════════════════════ */
+const PAGE_SIZE_SUPS = 5
+
 function SupervisoresTab({ sups, loading, onToggleDisponible, toggling }) {
+  const [page, setPage] = useState(1)
+
+  // Resetear página cuando cambian los supervisores
+  useEffect(() => { setPage(1) }, [sups.length])
+
   if (loading) return <Spinner />
   if (!sups.length) {
     return (
@@ -127,9 +176,11 @@ function SupervisoresTab({ sups, loading, onToggleDisponible, toggling }) {
     )
   }
 
+  const paginated = sups.slice((page - 1) * PAGE_SIZE_SUPS, page * PAGE_SIZE_SUPS)
+
   return (
     <div className="space-y-2">
-      {sups.map(s => {
+      {paginated.map(s => {
         const totalActivas = s.alarmas_activas
         const cargaColor = totalActivas >= 4 ? 'red' : totalActivas >= 2 ? 'amber' : 'green'
         return (
@@ -206,6 +257,7 @@ function SupervisoresTab({ sups, loading, onToggleDisponible, toggling }) {
           </div>
         )
       })}
+      <Paginador page={page} total={sups.length} pageSize={PAGE_SIZE_SUPS} onChange={setPage} />
     </div>
   )
 }
@@ -213,8 +265,13 @@ function SupervisoresTab({ sups, loading, onToggleDisponible, toggling }) {
 /* ══════════════════════════════════════════════════════════════
    TAB: Alarmas activas con reasignación
 ══════════════════════════════════════════════════════════════ */
+const PAGE_SIZE_ALARMAS = 8
+
 function AlarmasTab({ alarmas, sups, loading, onReasignar }) {
   const [modal, setModal] = useState(null)  // alarma seleccionada
+  const [page, setPage]   = useState(1)
+
+  useEffect(() => { setPage(1) }, [alarmas.length])
 
   const handleConfirm = async (alarmaId, supId) => {
     await onReasignar(alarmaId, supId)
@@ -233,11 +290,12 @@ function AlarmasTab({ alarmas, sups, loading, onReasignar }) {
 
   const nivelOrder = { critica: 0, moderada: 1, leve: 2 }
   const sorted = [...alarmas].sort((a, b) => (nivelOrder[a.nivel] ?? 3) - (nivelOrder[b.nivel] ?? 3))
+  const paginated = sorted.slice((page - 1) * PAGE_SIZE_ALARMAS, page * PAGE_SIZE_ALARMAS)
 
   return (
     <>
       <div className="space-y-2">
-        {sorted.map(a => (
+        {paginated.map(a => (
           <div key={a.id} className={`rounded-xl border p-3 ${
             a.nivel === 'critica' ? 'border-red-200 bg-red-50/40'
             : a.nivel === 'moderada' ? 'border-amber-200 bg-amber-50/40'
@@ -273,6 +331,8 @@ function AlarmasTab({ alarmas, sups, loading, onReasignar }) {
           </div>
         ))}
       </div>
+
+      <Paginador page={page} total={alarmas.length} pageSize={PAGE_SIZE_ALARMAS} onChange={setPage} />
 
       {modal && (
         <ModalReasignar

@@ -5,6 +5,7 @@ import { CELULAS_LIST, getMicroceldas } from '../constants/celulas'
 
 const ROLES = [
   { value: 'admin',                 label: 'Admin' },
+  { value: 'jefe_ccot',             label: 'Jefe CCOT' },
   { value: 'lider_celula',          label: 'Líder de Célula' },
   { value: 'supervisor_microcelda', label: 'Supervisor de Microcelda' },
   { value: 'supervisor_ccot',       label: 'Supervisor CCOT' },
@@ -12,6 +13,7 @@ const ROLES = [
 
 const BADGE_ROLE = {
   admin:                 'bg-violet-100 text-violet-700',
+  jefe_ccot:             'bg-cyan-100 text-cyan-700',
   lider_celula:          'bg-indigo-100 text-indigo-700',
   supervisor_microcelda: 'bg-blue-100 text-blue-700',
   supervisor_ccot:       'bg-emerald-100 text-emerald-700',
@@ -19,6 +21,7 @@ const BADGE_ROLE = {
 
 const ROLE_LABEL = {
   admin:                 'Admin',
+  jefe_ccot:             'Jefe CCOT',
   lider_celula:          'Líder Célula',
   supervisor_microcelda: 'Supervisor',
   supervisor_ccot:       'Sup. CCOT',
