@@ -24,8 +24,23 @@ logger = logging.getLogger(__name__)
 
 ESTADOS_RETRASO  = {"Retraso actual", "Retraso en siguiente"}
 MIN_RETRASO_LEVE = 30   # Umbral mínimo para crear alarma
-MAX_ALARMAS_SUP  = 5    # Cap de alarmas activas por supervisor
+MAX_ALARMAS_SUP  = 5    # Cap de alarmas activas por supervisor (fallback; se lee de BD)
 HORAS_ACTIVO     = 8    # Horas desde último login para considerar "activo reciente"
+
+
+async def _get_max_alarmas_sup() -> int:
+    """Lee max_alarmas_sup de la tabla configuracion. Fallback al valor hardcoded."""
+    try:
+        from app.database import AsyncSessionLocal
+        from sqlalchemy import text
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                text("SELECT valor FROM configuracion WHERE clave = 'max_alarmas_sup'")
+            )
+            row = result.fetchone()
+            return int(row[0]) if row else MAX_ALARMAS_SUP
+    except Exception:
+        return MAX_ALARMAS_SUP
 
 SLA_MIN = {"leve": 45, "moderada": 20, "critica": 10}
 
@@ -115,10 +130,11 @@ async def _siguiente_supervisor(
     elegido = min(supervisores, key=lambda s: carga.get(s["user_id"], 0))
     carga_elegido = carga.get(elegido["user_id"], 0)
 
-    if carga_elegido >= MAX_ALARMAS_SUP:
+    cap = await _get_max_alarmas_sup()
+    if carga_elegido >= cap:
         logger.info(
             "[Alarma][Cap] Todos los supervisores en tope (%d). Alarma queda sin asignar.",
-            MAX_ALARMAS_SUP,
+            cap,
         )
         return None  # Cap duro: alarma va a cola sin asignar
     return elegido

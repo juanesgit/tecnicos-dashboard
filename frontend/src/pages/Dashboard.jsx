@@ -20,6 +20,7 @@ import MapaCalorEfectividad from '../components/MapaCalorEfectividad'
 import Usuarios from './Usuarios'
 import Admin from './Admin'
 import Alarmas from './Alarmas'
+import Jefe from './Jefe'
 import ProductividadView from '../components/ProductividadView'
 
 /* ─── KPI banner compacto ─────────────────────────────────────── */
@@ -455,8 +456,8 @@ export default function Dashboard() {
       {activeTab !== 'alarmas' && (
       <div className="max-w-4xl mx-auto px-3 py-3 space-y-3">
 
-        {/* ── Barra superior — oculta en la sección de usuarios ── */}
-        {activeTab !== 'usuarios' && <div className="flex items-center justify-between gap-2">
+        {/* ── Barra superior — oculta en usuarios y jefe ── */}
+        {activeTab !== 'usuarios' && activeTab !== 'jefe' && <div className="flex items-center justify-between gap-2">
 
           {/* Zona + timestamps */}
           <div className="flex items-center gap-2 min-w-0">
@@ -609,6 +610,8 @@ export default function Dashboard() {
         )}
 
         {activeTab === 'usuarios' && <Usuarios />}
+
+        {activeTab === 'jefe' && ['admin', 'jefe_ccot'].includes(user?.role) && <Jefe />}
 
         {activeTab === 'snapshots' && user?.role === 'admin' && <Admin />}
 

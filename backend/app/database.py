@@ -106,6 +106,18 @@ async def _migrate_users():
         "ALTER TABLE users ADD COLUMN last_login DATETIME",
         # disponible: indica si el técnico/supervisor está disponible para recibir alarmas
         "ALTER TABLE users ADD COLUMN disponible INTEGER NOT NULL DEFAULT 0",
+        # Tabla de configuración dinámica (clave/valor)
+        """CREATE TABLE IF NOT EXISTS configuracion (
+            clave VARCHAR(80) PRIMARY KEY NOT NULL,
+            valor TEXT NOT NULL DEFAULT ''
+        )""",
+        # Columnas de gestión de alarmas (jefe_ccot, gestión extendida)
+        "ALTER TABLE alarmas ADD COLUMN nodo VARCHAR(80)",
+        "ALTER TABLE alarmas ADD COLUMN fecha_en_gestion DATETIME",
+        "ALTER TABLE alarmas ADD COLUMN causa_id INTEGER",
+        "ALTER TABLE alarmas ADD COLUMN notas_gestion TEXT",
+        "ALTER TABLE alarmas ADD COLUMN gestionada_por INTEGER",
+        "ALTER TABLE alarmas ADD COLUMN fecha_gestion DATETIME",
     ]
     async with engine.begin() as conn:
         for sql in migrations:
