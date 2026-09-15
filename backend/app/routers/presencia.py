@@ -82,8 +82,8 @@ async def ws_presencia(websocket: WebSocket, token: str = Query(...)):
         websocket,
     )
 
-    # Si es supervisor_ccot, rebalancear alarmas en background
-    if user.role == "supervisor_ccot":
+    # Solo rebalancear si el supervisor que conecta está disponible
+    if user.role == "supervisor_ccot" and user.disponible:
         asyncio.create_task(_rebalancear_alarmas(user.id, user.full_name))
 
     try:
@@ -113,8 +113,8 @@ async def _rebalancear_alarmas(nuevo_sup_id: int, nombre: str):
         now = datetime.now(tz).replace(tzinfo=None)
 
         async with AsyncSessionLocal() as session:
-            # Todos los supervisores online ahora
-            online_ids = [u["user_id"] for u in manager.get_online() if u.get("role") == "supervisor_ccot"]
+            # Solo supervisores online Y disponibles (disponible=True)
+            online_ids = [u["user_id"] for u in manager.get_online() if u.get("role") == "supervisor_ccot" and u.get("disponible")]
             if len(online_ids) < 2:
                 return  # nada que rebalancear si solo hay uno
 

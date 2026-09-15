@@ -171,7 +171,8 @@ async def _rebalancear_entre_online() -> None:
     from app.routers.presencia import manager
 
     online = manager.get_online()
-    online_sups = [u for u in online if u.get("role") == "supervisor_ccot"]
+    # Solo rebalancear entre supervisores que están disponibles (disponible=True)
+    online_sups = [u for u in online if u.get("role") == "supervisor_ccot" and u.get("disponible")]
     if len(online_sups) < 2:
         return
 
